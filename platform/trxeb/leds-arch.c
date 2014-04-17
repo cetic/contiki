@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, NooliTIC
+ * Copyright (c) 2005, Swedish Institute of Computer Science.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,57 +26,55 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * This file is part of the Contiki operating system.
+ * This file is part of the Configurable Sensor Network Application
+ * Architecture for sensor nodes running the Contiki operating system.
  *
+ *
+ * -----------------------------------------------------------------
+ *
+ * Author  : Adam Dunkels, Joakim Eriksson, Niclas Finne
+ * Created : 2005-11-03
+ * Updated : $Date: 2006/06/17 22:41:21 $
+ *           $Revision: 1.1 $
  */
 
-/**
- * \file
- *         SLIP arch specific for the NooliBerry platform
- * \author
- *         Ludovic Wiart <ludovic.wiart@noolitic.biz>
- *         Olivier Debreu <olivier.debreu@noolitic.biz>
- */
+#include "contiki-conf.h"
+#include "dev/leds.h"
 
-#include <stdio.h>
-#include "contiki.h"
-#include "slip.h"
-#include "uart1.h"
+/* LED ports */
+#define LEDS_CONF_RED    0x01
+#define LEDS_CONF_YELLOW 0x02
+#define LEDS_CONF_GREEN  0x04
+/* Blue is the rightmost red led */
+#define LEDS_CONF_BLUE   0x08
+/* Note that LED ports level are inverted wrt exp5438 */
 
-/*---------------------------------------------------------------------------*/
-static int
-slip_putchar(char c, FILE *stream)
-{
-#define SLIP_END 0300
-  static char debug_frame = 0;
-
-  if (!debug_frame) {        /* Start of debug output */
-    slip_arch_writeb(SLIP_END);
-    slip_arch_writeb('\r'); /* Type debug line == '\r' */
-    debug_frame = 1;
-  }
-
-  slip_arch_writeb((unsigned char)c);
-
-  /*
-   * Line buffered output, a newline marks the end of debug output and
-   * implicitly flushes debug output.
-   */
-  if (c == '\n') {
-    slip_arch_writeb(SLIP_END);
-    debug_frame = 0;
-  }
-
-  return c;
-}
-/*---------------------------------------------------------------------------*/
-static FILE slip_stdout = FDEV_SETUP_STREAM(slip_putchar, NULL,
-                                            _FDEV_SETUP_WRITE);
 /*---------------------------------------------------------------------------*/
 void
-slip_arch_init(unsigned long ubr)
+leds_arch_init(void)
 {
-  uart1_set_input(slip_input_byte);
-  stdout = &slip_stdout;
+  P4DIR |= LEDS_CONF_RED;
+  P4DIR |= LEDS_CONF_GREEN;
+  P4DIR |= LEDS_CONF_YELLOW;
+  P4DIR |= LEDS_CONF_BLUE;
+}
+/*---------------------------------------------------------------------------*/
+unsigned char
+leds_arch_get(void)
+{
+  return (!(P4OUT & LEDS_CONF_RED) ? 0 : LEDS_RED)
+    | (!(P4OUT & LEDS_CONF_GREEN) ? 0 : LEDS_GREEN)
+  | (!(P4OUT & LEDS_CONF_YELLOW) ? 0 : LEDS_YELLOW)
+  | (!(P4OUT & LEDS_CONF_BLUE) ? 0 : LEDS_BLUE);
+}
+/*---------------------------------------------------------------------------*/
+void
+leds_arch_set(unsigned char leds)
+{
+  P4OUT = (P4OUT & ~LEDS_CONF_RED) | ((leds & LEDS_RED) ? 0 : LEDS_CONF_RED);
+  P4OUT = (P4OUT & ~LEDS_CONF_GREEN) |
+    ((leds & LEDS_GREEN) ? 0 : LEDS_CONF_GREEN);
+  P4OUT = (P4OUT & ~LEDS_CONF_YELLOW) | ((leds & LEDS_YELLOW) ? 0 : LEDS_CONF_YELLOW );
+  P4OUT = (P4OUT & ~LEDS_CONF_BLUE) | ((leds & LEDS_BLUE) ? 0 : LEDS_CONF_BLUE);
 }
 /*---------------------------------------------------------------------------*/
