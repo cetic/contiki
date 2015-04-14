@@ -193,6 +193,9 @@ uip_ds6_periodic(void)
       locaddr < uip_ds6_if.addr_list + UIP_DS6_ADDR_NB; locaddr++) {
     if(locaddr->isused) {
       if((!locaddr->isinfinite) && (stimer_expired(&locaddr->vlifetime))) {
+        PRINTF("Removing addr ");
+        PRINT6ADDR(&locaddr->ipaddr);
+        PRINTF("\n");
         uip_ds6_addr_rm(locaddr);
 #if UIP_ND6_DEF_MAXDADNS > 0
       } else if((locaddr->state == ADDR_TENTATIVE)
@@ -302,6 +305,9 @@ uip_ds6_periodic(void)
       locdad++) {
     if(locdad->isused && stimer_expired(&locdad->lifetime)) {
       uip_ds6_dup_addr_rm(locdad);
+      PRINTF("Removing dup addr ");
+      PRINT6ADDR(&locdad->ipaddr);
+      PRINTF("\n");
     }
   }
 #endif /* UIP_CONF_6LBR */
