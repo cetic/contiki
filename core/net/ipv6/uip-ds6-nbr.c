@@ -51,6 +51,10 @@
 #include "net/linkaddr.h"
 #include "net/packetbuf.h"
 #include "net/ipv6/uip-ds6-nbr.h"
+#if UIP_SWITCH_LOOKUP
+#include "switch-lookup.h"
+#include "network-itf.h"
+#endif
 
 #define DEBUG DEBUG_NONE
 #include "net/ip/uip-debug.h"
@@ -105,6 +109,10 @@ uip_ds6_nbr_add(const uip_ipaddr_t *ipaddr, const uip_lladdr_t *lladdr,
     stimer_set(&nbr->sendns, 0);
     nbr->nscount = 0;
 #endif /* UIP_ND6_SEND_NS */
+#if UIP_SWITCH_LOOKUP
+    /* interface is not yet known */
+    nbr->ifindex = NETWORK_ITF_UNKNOWN;
+#endif
     PRINTF("Adding neighbor with ip addr ");
     PRINT6ADDR(ipaddr);
     PRINTF(" link addr ");
@@ -136,6 +144,64 @@ uip_ds6_nbr_rm(uip_ds6_nbr_t *nbr)
   return 0;
 }
 
+/*---------------------------------------------------------------------------*/
+/**
+ * \brief Update the link-layer address associated with a specified 'nbr'
+ * \retval 0 Failure
+ * \retval 1 Success
+ */
+int
+uip_ds6_nbr_update_lladdr(uip_ds6_nbr_t **nbr, const uip_lladdr_t *new_ll_addr)
+{
+  uip_ds6_nbr_t *duplicated_nbr;
+  uip_ds6_nbr_t *new_nbr;
+  uip_ds6_nbr_t backup_nbr;
+
+  if(nbr == NULL || *nbr == NULL || new_ll_addr == NULL) {
+    return 0;
+  }
+
+  duplicated_nbr = uip_ds6_nbr_ll_lookup(new_ll_addr);
+  if(duplicated_nbr != NULL) {
+    /*
+     * It seems new_ll_addr is associated with another IPv6 address. Currently,
+     * we have a single 'nbr' entry per link-layer address so remove the older
+     * entry.
+     */
+    PRINTF("Duplicated address for ");
+    PRINTLLADDR((uip_lladdr_t *)new_ll_addr);
+    PRINTF(" ");
+    PRINT6ADDR(&(*nbr)->ipaddr);
+    PRINTF(" removing ");
+    PRINT6ADDR(&duplicated_nbr->ipaddr);
+    PRINTF("\n");
+    if(uip_ds6_nbr_rm(duplicated_nbr) == 0) {
+      /* Unexpectedly failed to remove 'nbr'. */
+      PRINTF("Could not remove\n");
+      return 0;
+    }
+  }
+
+  /* make room for a newly allocated nbr first */
+  memcpy(&backup_nbr, *nbr, sizeof(uip_ds6_nbr_t));
+  if(uip_ds6_nbr_rm(*nbr) == 0) {
+    /* Unexpectedly failed to remove 'nbr'. */
+    return 0;
+  }
+
+  new_nbr = uip_ds6_nbr_add(&backup_nbr.ipaddr, new_ll_addr,
+                            backup_nbr.isrouter, backup_nbr.state,
+                            NBR_TABLE_REASON_IPV6_ND, NULL);
+  if(new_nbr == NULL) {
+    /* Failed to allocate a new 'nbr', and *nbr has already removed  */
+    *nbr = NULL;
+    return 0;
+  }
+  memcpy(new_nbr, &backup_nbr, sizeof(uip_ds6_nbr_t));
+  *nbr = new_nbr; /* make '*nbr' point to 'new_nbr' */
+
+  return 1;
+}
 /*---------------------------------------------------------------------------*/
 const uip_ipaddr_t *
 uip_ds6_nbr_get_ipaddr(const uip_ds6_nbr_t *nbr)
@@ -253,6 +319,16 @@ uip_ds6_neighbor_periodic(void)
 {
   uip_ds6_nbr_t *nbr = nbr_table_head(ds6_neighbors);
   while(nbr != NULL) {
+    const uip_lladdr_t * lladdr = uip_ds6_nbr_get_ll(nbr);
+    if(nbr->state != NBR_INCOMPLETE && (lladdr == NULL || linkaddr_cmp((linkaddr_t *)lladdr, &linkaddr_null))) {
+      PRINTF("Invalid NBR entry found, removing\n");
+      if(uip_ds6_nbr_rm(nbr) == 0) {
+        /* Unexpectedly failed to remove 'nbr'. */
+        PRINTF("Could not remove\n");
+      }
+      nbr = nbr_table_next(ds6_neighbors, nbr);
+      continue;
+    }
     switch(nbr->state) {
     case NBR_REACHABLE:
       if(stimer_expired(&nbr->reachable)) {
@@ -331,7 +407,7 @@ uip_ds6_nbr_refresh_reachable_state(const uip_ipaddr_t *ipaddr)
 {
   uip_ds6_nbr_t *nbr;
   nbr = uip_ds6_nbr_lookup(ipaddr);
-  if(nbr != NULL) {
+  if(nbr != NULL && nbr-> state != NBR_INCOMPLETE) {
     nbr->state = NBR_REACHABLE;
     nbr->nscount = 0;
     stimer_set(&nbr->reachable, UIP_ND6_REACHABLE_TIME / 1000);

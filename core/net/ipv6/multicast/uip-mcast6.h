@@ -165,17 +165,34 @@ struct uip_mcast6_driver {
 #define RPL_WITH_MULTICAST     1
 #define UIP_MCAST6             esmrf_driver
 
+#elif UIP_MCAST6_ENGINE == UIP_MCAST6_ENGINE_WRAPPER
+uint8_t multicast_wrapper_is_rpl_multicast(void);
+#define RPL_WITH_MULTICAST     1
+#define RPL_WITH_MULTICAST_TEST     multicast_wrapper_is_rpl_multicast
+#define UIP_MCAST6             multicast_wrapper_driver
+
 #else
 #error "Multicast Enabled with an Unknown Engine."
 #error "Check the value of UIP_MCAST6_CONF_ENGINE in conf files."
 #endif
+
+#ifndef RPL_WITH_MULTICAST_TEST
+#define RPL_WITH_MULTICAST_TEST(x) RPL_WITH_MULTICAST
+#endif
+
 #endif /* UIP_MCAST6_ENGINE */
+
+#ifdef RPL_CONF_SEND_DAO_FOR_MULTICAST_ADDRESS
+#define RPL_SEND_DAO_FOR_MULTICAST_ADDRESS RPL_CONF_SEND_DAO_FOR_MULTICAST_ADDRESS
+#else
+#define RPL_SEND_DAO_FOR_MULTICAST_ADDRESS 1
+#endif
 
 extern const struct uip_mcast6_driver UIP_MCAST6;
 /*---------------------------------------------------------------------------*/
 /* Configuration Checks */
 /*---------------------------------------------------------------------------*/
-#if RPL_WITH_MULTICAST && (!UIP_CONF_IPV6_RPL)
+#if !CETIC_6LBR && RPL_WITH_MULTICAST && (!UIP_CONF_IPV6_RPL)
 #error "The selected Multicast mode requires UIP_CONF_IPV6_RPL != 0"
 #error "Check the value of UIP_CONF_IPV6_RPL in conf files."
 #endif

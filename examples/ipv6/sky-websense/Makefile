@@ -3,7 +3,7 @@ all: sky-websense
 CONTIKI=../../..
 
 APPS += webbrowser
-
+SMALL=1
 CFLAGS += -DPROJECT_CONF_H=\"project-conf.h\"
 CONTIKI_SOURCEFILES += wget.c
 PROJECTDIRS += ../rpl-border-router

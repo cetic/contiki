@@ -147,6 +147,9 @@ static const output_config_t output_power[] = {
 /* Max and Min Output Power in dBm */
 #define OUTPUT_POWER_MIN    (output_power[OUTPUT_CONFIG_COUNT - 1].power)
 #define OUTPUT_POWER_MAX    (output_power[0].power)
+
+int cc2538_last_rssi;
+int cc2538_last_correlation;
 /*---------------------------------------------------------------------------*/
 PROCESS(cc2538_rf_process, "cc2538 RF driver");
 /*---------------------------------------------------------------------------*/
@@ -256,6 +259,32 @@ get_rssi(void)
   }
 
   return rssi;
+}
+/*---------------------------------------------------------------------------*/
+static radio_value_t
+get_iq_lsbs(void)
+{
+  radio_value_t result;
+  uint8_t was_off = 0;
+
+  /* If we are off, turn on first */
+  if((REG(RFCORE_XREG_FSMSTAT0) & RFCORE_XREG_FSMSTAT0_FSM_FFCTRL_STATE) == 0) {
+    was_off = 1;
+    on();
+  }
+
+  /* Wait on RSSI_VALID */
+  while((REG(RFCORE_XREG_RSSISTAT) & RFCORE_XREG_RSSISTAT_RSSI_VALID) == 0);
+
+  /* Read I/Q LSBs */
+  result = REG(RFCORE_XREG_RFRND);
+
+  /* If we were off, turn back off */
+  if(was_off) {
+    off();
+  }
+
+  return result;
 }
 /*---------------------------------------------------------------------------*/
 /* Returns the current CCA threshold in dBm */
@@ -761,7 +790,9 @@ read(void *buf, unsigned short bufsize)
   /* MS bit CRC OK/Not OK, 7 LS Bits, Correlation value */
   if(crc_corr & CRC_BIT_MASK) {
     packetbuf_set_attr(PACKETBUF_ATTR_RSSI, rssi);
+    cc2538_last_rssi = rssi;
     packetbuf_set_attr(PACKETBUF_ATTR_LINK_QUALITY, crc_corr & LQI_BIT_MASK);
+    cc2538_last_correlation = crc_corr & LQI_BIT_MASK;
     RIMESTATS_ADD(llrx);
   } else {
     RIMESTATS_ADD(badcrc);
@@ -861,6 +892,8 @@ get_value(radio_param_t param, radio_value_t *value)
     return RADIO_RESULT_OK;
   case RADIO_PARAM_LAST_LINK_QUALITY:
     *value = crc_corr & LQI_BIT_MASK;
+  case RADIO_PARAM_IQ_LSBS:
+    *value = get_iq_lsbs();
     return RADIO_RESULT_OK;
   case RADIO_CONST_CHANNEL_MIN:
     *value = CC2538_RF_CHANNEL_MIN;

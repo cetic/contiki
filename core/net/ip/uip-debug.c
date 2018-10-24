@@ -92,3 +92,23 @@ uip_debug_ipaddr_print(const uip_ipaddr_t *addr)
 #endif /* NETSTACK_CONF_WITH_IPV6 */
 }
 /*---------------------------------------------------------------------------*/
+void
+uip_debug_lladdr_print(const uip_lladdr_t *addr)
+{
+  if(addr == NULL) {
+    printf("(NULL LL addr)");
+    return;
+  }
+  unsigned int i;
+  if(addr == NULL) {
+    PRINTA("(NULL LL addr)");
+    return;
+  }
+  for(i = 0; i < sizeof(uip_lladdr_t); i++) {
+    if(i > 0) {
+      PRINTA(":");
+    }
+    PRINTA("%02x", addr->addr[i]);
+  }
+}
+/*---------------------------------------------------------------------------*/

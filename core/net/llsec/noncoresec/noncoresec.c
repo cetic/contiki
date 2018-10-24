@@ -47,12 +47,25 @@
 #include "net/llsec/llsec802154.h"
 #include "net/llsec/ccm-star-packetbuf.h"
 #include "net/mac/frame802154.h"
+#include "net/mac/framer-802154.h"
 #include "net/netstack.h"
 #include "net/packetbuf.h"
 #include "net/nbr-table.h"
 #include "net/linkaddr.h"
 #include "lib/ccm-star.h"
 #include <string.h>
+
+#ifndef LLSEC_ANTIREPLAY_ENABLED
+#define LLSEC_ANTIREPLAY_ENABLED 1
+#endif
+#ifndef LLSEC_REBOOT_WORKAROUND_ENABLED
+#define LLSEC_REBOOT_WORKAROUND_ENABLED 0
+#endif
+
+uint32_t noncoresec_invalid_level;
+uint32_t noncoresec_nonauthentic;
+uint32_t noncoresec_reboot;
+uint32_t noncoresec_replayed;
 
 #ifdef NONCORESEC_CONF_DECORATED_FRAMER
 #define DECORATED_FRAMER NONCORESEC_CONF_DECORATED_FRAMER
@@ -68,7 +81,6 @@ extern const struct framer DECORATED_FRAMER;
 #define SEC_LVL         2
 #endif /* NONCORESEC_CONF_SEC_LVL */
 
-#define WITH_ENCRYPTION (SEC_LVL & (1 << 2))
 #define MIC_LEN         LLSEC802154_MIC_LEN(SEC_LVL)
 
 #ifdef NONCORESEC_CONF_KEY
@@ -90,10 +102,15 @@ extern const struct framer DECORATED_FRAMER;
 #define PRINTF(...)
 #endif /* DEBUG */
 
-#if LLSEC802154_USES_AUX_HEADER && SEC_LVL && LLSEC802154_USES_FRAME_COUNTER
+#if LLSEC802154_USES_AUX_HEADER && LLSEC802154_USES_FRAME_COUNTER
 
 /* network-wide CCM* key */
+#ifdef NONCORESEC_CONF_KEY_REF
+#define NONCORESEC_KEY_REF NONCORESEC_CONF_KEY_REF
+#else
 static uint8_t key[16] = NONCORESEC_KEY;
+#define NONCORESEC_KEY_REF key
+#endif
 NBR_TABLE(struct anti_replay_info, anti_replay_table);
 
 /*---------------------------------------------------------------------------*/
@@ -107,22 +124,22 @@ aead(uint8_t hdrlen, int forward)
   uint8_t *a;
   uint8_t a_len;
   uint8_t *result;
-  uint8_t generated_mic[MIC_LEN];
+  uint8_t generated_mic[LLSEC802154_MIC_LEN(7)];
   uint8_t *mic;
   
   ccm_star_packetbuf_set_nonce(nonce, forward);
   totlen = packetbuf_totlen();
   a = packetbuf_hdrptr();
-#if WITH_ENCRYPTION
-  a_len = hdrlen;
-  m = a + a_len;
-  m_len = totlen - hdrlen;
-#else /* WITH_ENCRYPTION */
-  a_len = totlen;
-  m = NULL;
-  m_len = 0;
-#endif /* WITH_ENCRYPTION */
-  
+  if(SEC_LVL & (1 << 2)) {
+    a_len = hdrlen;
+    m = a + a_len;
+    m_len = totlen - hdrlen;
+  } else {
+    a_len = totlen;
+    m = NULL;
+    m_len = 0;
+  }
+
   mic = a + totlen;
   result = forward ? mic : generated_mic;
   
@@ -151,7 +168,8 @@ static void
 send(mac_callback_t sent, void *ptr)
 {
   add_security_header();
-  anti_replay_set_counter();
+  anti_replay_set_counter(NULL);
+  framer_802154_set_seqno();
   NETSTACK_MAC.send(sent, ptr);
 }
 /*---------------------------------------------------------------------------*/
@@ -197,9 +215,10 @@ parse(void)
   if(!aead(result, 0)) {
     PRINTF("noncoresec: received unauthentic frame %lu\n",
         anti_replay_get_counter());
+    noncoresec_nonauthentic++;
     return FRAMER_FAILED;
   }
-  
+  if(LLSEC_ANTIREPLAY_ENABLED) {
   info = nbr_table_get_from_lladdr(anti_replay_table, sender);
   if(!info) {
     info = nbr_table_add_lladdr(anti_replay_table, sender, NBR_TABLE_REASON_LLSEC, NULL);
@@ -227,11 +246,19 @@ parse(void)
     
     anti_replay_init_info(info);
   } else {
+    if(LLSEC_REBOOT_WORKAROUND_ENABLED && anti_replay_get_counter() == 1) {
+      /* Replay counter for the node has been reset, assume it is a reboot */
+      PRINTF("Reboot detected, Reseting replay counter\n");
+      anti_replay_init_info(info);
+      noncoresec_reboot++;
+    } else
     if(anti_replay_was_replayed(info)) {
        PRINTF("noncoresec: received replayed frame %lu\n",
            anti_replay_get_counter());
+       noncoresec_replayed++;
        return FRAMER_FAILED;
     }
+  }
   }
   
   return result;
@@ -253,7 +280,7 @@ length(void)
 static void
 init(void)
 {
-  CCM_STAR.set_key(key);
+  CCM_STAR.set_key(NONCORESEC_KEY_REF);
   nbr_table_register(anti_replay_table, NULL);
 }
 /*---------------------------------------------------------------------------*/

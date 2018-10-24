@@ -51,6 +51,8 @@
 
 #define w_memcpy memcpy
 
+#define SLIP_RADIO_CONF_NO_PUTCHAR 1
+
 #if NETSTACK_CONF_WITH_IPV4
 #if NETSTACK_CONF_WITH_IPV6
 #error NETSTACK_CONF_WITH_IPV4 && NETSTACK_CONF_WITH_IPV6: Bad configuration
@@ -74,11 +76,26 @@
 #define NULLRDC_CONF_ACK_WAIT_TIME                RTIMER_SECOND / 500
 #define NULLRDC_CONF_AFTER_ACK_DETECTED_WAIT_TIME 0
 
+#define CONTIKIMAC_CONF_WITH_CONTIKIMAC_HEADER  0
+#define CONTIKIMAC_CONF_SEND_SW_ACK 1
+#define CONTIKIMAC_CONF_WITH_PHASE_OPTIMIZATION 0
+
+#ifndef NETSTACK_CONF_RDC_CHANNEL_CHECK_RATE
+#define NETSTACK_CONF_RDC_CHANNEL_CHECK_RATE    8
+#endif
+
+#define CONTIKIMAC_CONF_CCA_CHECK_TIME            (RTIMER_ARCH_SECOND / 500)
+#define CONTIKIMAC_CONF_SEND_SW_ACK               1
+#define CONTIKIMAC_CONF_AFTER_ACK_DETECTECT_WAIT_TIME 0
+
+#define RTIMER_CONF_GUARD_TIME 2
 
 /* Network setup for IPv6 */
 #define NETSTACK_CONF_NETWORK       sicslowpan_driver
 #define NETSTACK_CONF_MAC           csma_driver
+#ifndef NETSTACK_CONF_RDC
 #define NETSTACK_CONF_RDC           nullrdc_driver
+#endif
 #define NETSTACK_CONF_RADIO         cooja_radio_driver
 #define NETSTACK_CONF_FRAMER        framer_802154
 
@@ -89,7 +106,9 @@
 /* Network setup for IPv4 */
 #define NETSTACK_CONF_NETWORK rime_driver /* NOTE: uip_over_mesh. else: uip_driver */
 #define NETSTACK_CONF_MAC nullmac_driver
-#define NETSTACK_CONF_RDC nullrdc_driver
+#ifndef NETSTACK_CONF_RDC
+#define NETSTACK_CONF_RDC           nullrdc_driver
+#endif
 #define NETSTACK_CONF_RADIO cooja_radio_driver
 #define UIP_CONF_IP_FORWARD           1
 
@@ -98,7 +117,9 @@
 /* Network setup for Rime */
 #define NETSTACK_CONF_NETWORK rime_driver
 #define NETSTACK_CONF_MAC csma_driver
-#define NETSTACK_CONF_RDC nullrdc_driver
+#ifndef NETSTACK_CONF_RDC
+#define NETSTACK_CONF_RDC           nullrdc_driver
+#endif
 #define NETSTACK_CONF_RADIO cooja_radio_driver
 /*#define NETSTACK_CONF_FRAMER framer_nullmac*/
 
@@ -117,7 +138,9 @@
 /* Network setup for IPv6 */
 #define NETSTACK_CONF_NETWORK       sicslowpan_driver
 #define NETSTACK_CONF_MAC           csma_driver
+#ifndef NETSTACK_CONF_RDC
 #define NETSTACK_CONF_RDC           nullrdc_driver
+#endif
 #define NETSTACK_CONF_RADIO         cooja_radio_driver
 #define NETSTACK_CONF_FRAMER        framer_802154
 #define NETSTACK_CONF_WITH_IPV6               1
@@ -243,16 +266,19 @@ typedef uint64_t rtimer_clock_t;
 #endif
 
 #ifndef UIP_CONF_TCP_MSS
-#define UIP_CONF_TCP_MSS                (UIP_CONF_BUFFER_SIZE - 70)
+#define UIP_CONF_TCP_MSS                (UIP_CONF_BUFFER_SIZE - 80)
 #endif
 
 #ifndef UIP_CONF_RECEIVE_WINDOW
-#define UIP_CONF_RECEIVE_WINDOW         (UIP_CONF_BUFFER_SIZE - 70)
+#define UIP_CONF_RECEIVE_WINDOW         (UIP_CONF_BUFFER_SIZE - 80)
 #endif
 
 #define RF_CHANNEL                     26
 #define IEEE802154_CONF_PANID          0xABCD
 #define NETSTACK_RADIO_MAX_PAYLOAD_LEN 125
+
+#define PLATFORM_HAS_BUTTON            1
+#define PLATFORM_HAS_LEDS              1
 
 /* include the project config */
 /* PROJECT_CONF_H might be defined in the project Makefile */

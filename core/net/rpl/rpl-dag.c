@@ -55,6 +55,10 @@
 #include "lib/memb.h"
 #include "sys/ctimer.h"
 
+#if CETIC_6LBR
+#include "6lbr-hooks.h"
+#endif
+
 #include <limits.h>
 #include <string.h>
 
@@ -258,9 +262,8 @@ rpl_set_preferred_parent(rpl_dag_t *dag, rpl_parent_t *p)
 }
 /*---------------------------------------------------------------------------*/
 /* Greater-than function for the lollipop counter.                      */
-/*---------------------------------------------------------------------------*/
-static int
-lollipop_greater_than(int a, int b)
+int
+rpl_lollipop_greater_than(int a, int b)
 {
   /* Check if we are comparing an initial value with an old value */
   if(a > RPL_LOLLIPOP_CIRCULAR_REGION && b <= RPL_LOLLIPOP_CIRCULAR_REGION) {
@@ -317,7 +320,7 @@ should_refresh_routes(rpl_instance_t *instance, rpl_dio_t *dio, rpl_parent_t *p)
   }
   /* check if the new DTSN is more recent */
   return p == instance->current_dag->preferred_parent &&
-    (lollipop_greater_than(dio->dtsn, p->dtsn));
+    (rpl_lollipop_greater_than(dio->dtsn, p->dtsn));
 }
 /*---------------------------------------------------------------------------*/
 static int
@@ -358,7 +361,14 @@ rpl_set_root(uint8_t instance_id, uip_ipaddr_t *dag_id)
   uint8_t version;
   int i;
 
+#if CETIC_6LBR
+  version = nvm_data.rpl_version_id;
+  RPL_LOLLIPOP_INCREMENT(version);
+  nvm_data.rpl_version_id = version;
+  store_nvm_config();
+#else
   version = RPL_LOLLIPOP_INIT;
+#endif
   instance = rpl_get_instance(instance_id);
   if(instance != NULL) {
     for(i = 0; i < RPL_MAX_DAG_PER_INSTANCE; ++i) {
@@ -367,9 +377,14 @@ rpl_set_root(uint8_t instance_id, uip_ipaddr_t *dag_id)
         if(uip_ipaddr_cmp(&dag->dag_id, dag_id)) {
           version = dag->version;
           RPL_LOLLIPOP_INCREMENT(version);
+#if CETIC_6LBR
+          nvm_data.rpl_version_id = version;
+          store_nvm_config();
+#endif
         }
         if(dag == dag->instance->current_dag) {
           PRINTF("RPL: Dropping a joined DAG when setting this node as root");
+          rpl_set_default_route(instance, NULL);
           dag->instance->current_dag = NULL;
         } else {
           PRINTF("RPL: Dropping a DAG when setting this node as root");
@@ -456,6 +471,10 @@ rpl_repair_root(uint8_t instance_id)
 
   RPL_LOLLIPOP_INCREMENT(instance->current_dag->version);
   RPL_LOLLIPOP_INCREMENT(instance->dtsn_out);
+#if CETIC_6LBR
+  nvm_data.rpl_version_id = instance->current_dag->version;
+  store_nvm_config();
+#endif
   PRINTF("RPL: rpl_repair_root initiating global repair with version %d\n", instance->current_dag->version);
   rpl_reset_dio_timer(instance);
   return 1;
@@ -522,14 +541,16 @@ rpl_set_prefix(rpl_dag_t *dag, uip_ipaddr_t *prefix, unsigned len)
   dag->prefix_info.length = len;
   dag->prefix_info.flags = UIP_ND6_RA_FLAG_AUTONOMOUS;
   PRINTF("RPL: Prefix set - will announce this in DIOs\n");
-  /* Autoconfigure an address if this node does not already have an address
-     with this prefix. Otherwise, update the prefix */
-  if(last_len == 0) {
-    PRINTF("RPL: rpl_set_prefix - prefix NULL\n");
-    check_prefix(NULL, &dag->prefix_info);
-  } else {
-    PRINTF("RPL: rpl_set_prefix - prefix NON-NULL\n");
-    check_prefix(&last_prefix, &dag->prefix_info);
+  if(dag->rank != ROOT_RANK(dag->instance)) {
+    /* Autoconfigure an address if this node does not already have an address
+       with this prefix. Otherwise, update the prefix */
+    if(last_len == 0) {
+      PRINTF("rpl_set_prefix - prefix NULL\n");
+      check_prefix(NULL, &dag->prefix_info);
+    } else {
+      PRINTF("rpl_set_prefix - prefix NON-NULL\n");
+      check_prefix(&last_prefix, &dag->prefix_info);
+    }
   }
   return 1;
 }
@@ -601,6 +622,10 @@ rpl_alloc_dag(uint8_t instance_id, uip_ipaddr_t *dag_id)
       dag->rank = INFINITE_RANK;
       dag->min_rank = INFINITE_RANK;
       dag->instance = instance;
+      dag->lifetime = RPL_DAG_LIFETIME;
+#if RPL_DAO_PATH_SEQUENCE
+      dag->path_sequence = RPL_PATH_SEQUENCE_INIT;
+#endif
       return dag;
     }
   }
@@ -665,6 +690,10 @@ rpl_free_dag(rpl_dag_t *dag)
     if(RPL_IS_STORING(dag->instance)) {
       rpl_remove_routes(dag);
     }
+    /* Stop the DAO retransmit timer */
+#if RPL_WITH_DAO_ACK
+    ctimer_stop(&dag->instance->dao_retransmit_timer);
+#endif /* RPL_WITH_DAO_ACK */
 
    /* Remove autoconfigured address */
     if((dag->prefix_info.flags & UIP_ND6_RA_FLAG_AUTONOMOUS)) {
@@ -757,22 +786,17 @@ rpl_select_dag(rpl_instance_t *instance, rpl_parent_t *p)
   old_rank = instance->current_dag->rank;
   last_parent = instance->current_dag->preferred_parent;
 
-  best_dag = instance->current_dag;
-  if(best_dag->rank != ROOT_RANK(instance)) {
-    if(rpl_select_parent(p->dag) != NULL) {
-      if(p->dag != best_dag) {
-        best_dag = instance->of->best_dag(best_dag, p->dag);
-      }
-    } else if(p->dag == best_dag) {
-      best_dag = NULL;
-      for(dag = &instance->dag_table[0], end = dag + RPL_MAX_DAG_PER_INSTANCE; dag < end; ++dag) {
-        if(dag->used && dag->preferred_parent != NULL && dag->preferred_parent->rank != INFINITE_RANK) {
-          if(best_dag == NULL) {
-            best_dag = dag;
-          } else {
-            best_dag = instance->of->best_dag(best_dag, dag);
-          }
-        }
+  if(instance->current_dag->rank != ROOT_RANK(instance)) {
+    rpl_select_parent(p->dag);
+  }
+
+  best_dag = NULL;
+  for(dag = &instance->dag_table[0], end = dag + RPL_MAX_DAG_PER_INSTANCE; dag < end; ++dag) {
+    if(dag->used && dag->preferred_parent != NULL && dag->preferred_parent->rank != INFINITE_RANK) {
+      if(best_dag == NULL) {
+        best_dag = dag;
+      } else {
+        best_dag = instance->of->best_dag(best_dag, dag);
       }
     }
   }
@@ -1074,6 +1098,14 @@ rpl_find_of(rpl_ocp_t ocp)
   return NULL;
 }
 /*---------------------------------------------------------------------------*/
+static void
+rpl_update_dag(rpl_instance_t *instance, rpl_dag_t *dag, rpl_dio_t *dio)
+{
+  dag->grounded = dio->grounded;
+  dag->preference = dio->preference;
+  dag->lifetime = (1UL << (instance->dio_intmin + instance->dio_intdoubl)) * RPL_DAG_LIFETIME / 1000;
+}
+/*---------------------------------------------------------------------------*/
 void
 rpl_join_instance(uip_ipaddr_t *from, rpl_dio_t *dio)
 {
@@ -1323,6 +1355,9 @@ rpl_local_repair(rpl_instance_t *instance)
 
   /* no downward route anymore */
   instance->has_downward_route = 0;
+#if RPL_WITH_DAO_ACK
+  ctimer_stop(&instance->dao_retransmit_timer);
+#endif /* RPL_WITH_DAO_ACK */
 
   rpl_reset_dio_timer(instance);
   if(RPL_IS_STORING(instance)) {
@@ -1443,7 +1478,8 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
 #if RPL_WITH_MULTICAST
   /* If the root is advertising MOP 2 but we support MOP 3 we can still join
    * In that scenario, we suppress DAOs for multicast targets */
-  if(dio->mop < RPL_MOP_STORING_NO_MULTICAST) {
+  if((RPL_WITH_MULTICAST_TEST() && dio->mop < RPL_MOP_STORING_NO_MULTICAST) ||
+      (!RPL_WITH_MULTICAST_TEST() && dio->mop != RPL_MOP_DEFAULT)) {
 #else
   if(dio->mop != RPL_MOP_DEFAULT) {
 #endif
@@ -1454,13 +1490,23 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
   dag = get_dag(dio->instance_id, &dio->dag_id);
   instance = rpl_get_instance(dio->instance_id);
 
+#if CETIC_6LBR
+  if(!cetic_6lbr_dio_input_hook(from, instance, dag, dio)) {
+    return;
+  }
+#endif
+
   if(dag != NULL && instance != NULL) {
-    if(lollipop_greater_than(dio->version, dag->version)) {
+    if(rpl_lollipop_greater_than(dio->version, dag->version)) {
       if(dag->rank == ROOT_RANK(instance)) {
         PRINTF("RPL: Root received inconsistent DIO version number (current: %u, received: %u)\n", dag->version, dio->version);
         dag->version = dio->version;
         RPL_LOLLIPOP_INCREMENT(dag->version);
         rpl_reset_dio_timer(instance);
+#if CETIC_6LBR
+        nvm_data.rpl_version_id = dag->version;
+        store_nvm_config();
+#endif
       } else {
         PRINTF("RPL: Global repair\n");
         if(dio->prefix_info.length != 0) {
@@ -1474,7 +1520,7 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
       return;
     }
 
-    if(lollipop_greater_than(dag->version, dio->version)) {
+    if(rpl_lollipop_greater_than(dag->version, dio->version)) {
       /* The DIO sender is on an older version of the DAG. */
       PRINTF("RPL: old version received => inconsistency detected\n");
       if(dag->joined) {
@@ -1557,6 +1603,7 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
    * whether to keep it in the set.
    */
 
+  rpl_update_dag(instance, dag, dio);
   p = rpl_find_parent(dag, from);
   if(p == NULL) {
     previous_dag = find_parent_dag(instance, from);

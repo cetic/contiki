@@ -335,6 +335,9 @@ CCIF extern process_event_t tcpip_event;
  *             uip_len variable.
  */
 CCIF void tcpip_input(void);
+typedef void (*inputfunc_t)(void);
+void tcpip_set_inputfunc(inputfunc_t f);
+inputfunc_t tcpip_get_inputfunc(void);
 
 /**
  * \brief Output packet to layer 2
@@ -343,6 +346,8 @@ CCIF void tcpip_input(void);
 #if NETSTACK_CONF_WITH_IPV6
 uint8_t tcpip_output(const uip_lladdr_t *);
 void tcpip_set_outputfunc(uint8_t (* f)(const uip_lladdr_t *));
+typedef uint8_t (*outputfunc_t)(const uip_lladdr_t *);
+outputfunc_t tcpip_get_outputfunc(void);
 #else
 uint8_t tcpip_output(void);
 void tcpip_set_outputfunc(uint8_t (* f)(void));

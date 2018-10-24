@@ -65,7 +65,7 @@ watchdog_stop(void)
 void
 watchdog_reboot(void)
 {
-  watchdog_start();
-  while(1);
+  volatile uint32_t SW_RST = CRM->SW_RST;
+  CRM->SW_RST = SW_RST;
 }
 /*---------------------------------------------------------------------------*/

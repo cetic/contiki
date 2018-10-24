@@ -52,5 +52,7 @@
 #define UIP_MCAST6_ENGINE_ROLL_TM     2 /**< The ROLL TM engine */
 #define UIP_MCAST6_ENGINE_ESMRF       3 /**< The ESMRF engine */
 
+#define UIP_MCAST6_ENGINE_WRAPPER     255 /**< The multicast wrapper */
+
 #endif /* UIP_MCAST6_ENGINES_H_ */
 /** @} */

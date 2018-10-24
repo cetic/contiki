@@ -245,6 +245,14 @@
 #define RPL_WITH_DAO_ACK 0
 #endif /* RPL_CONF_WITH_DAO_ACK */
 
+#ifdef RPL_CONF_WITH_DAO_ACK_TEST
+#define RPL_WITH_DAO_ACK_TEST RPL_CONF_WITH_DAO_ACK_TEST
+#undef RPL_WITH_DAO_ACK
+#define RPL_WITH_DAO_ACK 1
+#else
+#define RPL_WITH_DAO_ACK_TEST RPL_WITH_DAO_ACK
+#endif /* RPL_CONF_WITH_DAO_ACK_TEST */
+
 /*
  * RPL REPAIR ON DAO NACK. When enabled, DAO NACK will trigger a local
  * repair in order to quickly find a new parent to send DAO's to.
@@ -268,6 +276,35 @@
 #else
 #define RPL_DIO_REFRESH_DAO_ROUTES 1
 #endif /* RPL_CONF_DIO_REFRESH_DAO_ROUTES */
+
+/*
+ * RPL DAO Transit Information Option path sequence. When set, the path
+ * sequence counter will be incremented each time a new DAO is emitted.
+ * On the destination of the DAO, the path sequence is checked against the
+ * last value received. If the path sequence is older, the DAO is dropped.
+ * */
+#ifdef RPL_CONF_DAO_PATH_SEQUENCE
+#define RPL_DAO_PATH_SEQUENCE RPL_CONF_DAO_PATH_SEQUENCE
+#else
+#define RPL_DAO_PATH_SEQUENCE 0
+#endif
+
+#ifdef RPL_CONF_DAO_PATH_SEQUENCE_TEST
+#define RPL_DAO_PATH_SEQUENCE_TEST RPL_CONF_DAO_PATH_SEQUENCE_TEST
+#undef RPL_DAO_PATH_SEQUENCE
+#define RPL_DAO_PATH_SEQUENCE 1
+#else
+#define RPL_DAO_PATH_SEQUENCE_TEST RPL_DAO_PATH_SEQUENCE
+#endif /* RPL_CONF_DAO_PATH_SEQUENCE_TEST */
+
+/*
+ * Initial value of the Path Sequence counter of the RPL DAO Transit Information
+ * */
+#ifdef RPL_CONF_PATH_SEQUENCE_INIT
+#define RPL_PATH_SEQUENCE_INIT RPL_CONF_PATH_SEQUENCE_INIT
+#else
+#define RPL_PATH_SEQUENCE_INIT RPL_LOLLIPOP_INIT
+#endif
 
 /*
  * RPL probing. When enabled, probes will be sent periodically to keep

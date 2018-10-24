@@ -211,6 +211,7 @@ main(void)
   }
 
 
+#if !UIP_DS6_NO_STATIC_ADDRESS
   if(!UIP_CONF_IPV6_RPL) {
     uip_ipaddr_t ipaddr;
     int i;
@@ -225,6 +226,7 @@ main(void)
     printf("%02x%02x\n",
            ipaddr.u8[7 * 2], ipaddr.u8[7 * 2 + 1]);
   }
+#endif /* !UIP_DS6_NO_STATIC_ADDRESS */
 #endif /* NETSTACK_CONF_WITH_IPV6 */
   
   watchdog_start();

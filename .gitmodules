@@ -1,12 +1,24 @@
 [submodule "tools/mspsim"]
 	path = tools/mspsim
 	url = https://github.com/contiki-os/mspsim.git
+[submodule "tools/cooja/apps/serial2pty"]
+	path = tools/cooja/apps/serial2pty
+	url = https://github.com/cetic/cooja-serial2pty
+[submodule "tools/cooja/apps/radiologger-headless"]
+	path = tools/cooja/apps/radiologger-headless
+	url = https://github.com/cetic/cooja-radiologger-headless.git
+[submodule "apps/tinydtls"]
+	path = apps/tinydtls
+	url = https://github.com/cetic/tinydtls.git
 [submodule "tools/cc2538-bsl"]
 	path = tools/cc2538-bsl
 	url = https://github.com/JelmerT/cc2538-bsl.git
 [submodule "cpu/cc26xx-cc13xx/lib/cc26xxware"]
 	path = cpu/cc26xx-cc13xx/lib/cc26xxware
 	url = https://github.com/contiki-os/cc26xxware.git
+[submodule "examples/6lbr/lib/inih"]
+	path = examples/6lbr/lib/inih
+	url = https://github.com/cetic/inih.git
 [submodule "cpu/cc26xx-cc13xx/lib/cc13xxware"]
 	path = cpu/cc26xx-cc13xx/lib/cc13xxware
 	url = https://github.com/contiki-os/cc13xxware.git

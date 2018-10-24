@@ -48,6 +48,10 @@
 
 #include "net/netstack.h"
 
+#if CETIC_6LBR_MULTI_RADIO
+#include "multi-radio.h"
+#endif
+
 #include "lib/list.h"
 #include "lib/memb.h"
 
@@ -98,6 +102,9 @@ struct qbuf_metadata {
   mac_callback_t sent;
   void *cptr;
   uint8_t max_transmissions;
+#if CETIC_6LBR_MULTI_RADIO
+  uint8_t ifindex;
+#endif
 };
 
 /* Every neighbor has its own packet queue */
@@ -132,6 +139,26 @@ LIST(neighbor_list);
 
 static void packet_sent(void *ptr, int status, int num_transmissions);
 static void transmit_packet_list(void *ptr);
+
+uint32_t csma_packet_overflow;
+uint32_t csma_neighbor_overflow;
+uint32_t csma_sent_packets;
+uint32_t csma_received_packets;
+uint32_t csma_noack;
+uint32_t csma_collisions;
+uint32_t csma_deferred;
+uint32_t csma_retransmissions;
+uint32_t csma_dropped;
+
+/*---------------------------------------------------------------------------*/
+int csma_allocated_packets(void)
+{
+  return MAX_QUEUED_PACKETS - memb_numfree(&packet_memb);
+}
+int csma_allocated_neighbors(void)
+{
+  return CSMA_MAX_NEIGHBOR_QUEUES - memb_numfree(&neighbor_memb);
+}
 /*---------------------------------------------------------------------------*/
 static struct neighbor_queue *
 neighbor_queue_from_addr(const linkaddr_t *addr)
@@ -172,6 +199,11 @@ transmit_packet_list(void *ptr)
     if(q != NULL) {
       PRINTF("csma: preparing number %d %p, queue len %d\n", n->transmissions, q,
           list_length(n->queued_packet_list));
+#if CETIC_6LBR_MULTI_RADIO
+      /* Find out what interface we should use... */
+      struct qbuf_metadata *metadata = (struct qbuf_metadata *)q->ptr;
+      multi_radio_output_ifindex = metadata->ifindex;
+#endif
       /* Send packets in the neighbor's list */
       NETSTACK_RDC.send_list(packet_sent, n, q);
     }
@@ -273,6 +305,7 @@ collision(struct rdc_buf_list *q, struct neighbor_queue *n,
 
   metadata = (struct qbuf_metadata *)q->ptr;
 
+  csma_collisions += num_transmissions;
   n->collisions += num_transmissions;
 
   if(n->collisions > CSMA_MAX_BACKOFF) {
@@ -282,6 +315,7 @@ collision(struct rdc_buf_list *q, struct neighbor_queue *n,
   }
 
   if(n->transmissions >= metadata->max_transmissions) {
+    csma_dropped++;
     tx_done(MAC_TX_COLLISION, q, n);
   } else {
     PRINTF("csma: rexmit collision %d\n", n->transmissions);
@@ -296,10 +330,13 @@ noack(struct rdc_buf_list *q, struct neighbor_queue *n, int num_transmissions)
 
   metadata = (struct qbuf_metadata *)q->ptr;
 
+  csma_noack++;
+  csma_sent_packets++;
   n->collisions = CSMA_MIN_BE;
   n->transmissions += num_transmissions;
 
   if(n->transmissions >= metadata->max_transmissions) {
+    csma_dropped++;
     tx_done(MAC_TX_NOACK, q, n);
   } else {
     PRINTF("csma: rexmit noack %d\n", n->transmissions);
@@ -310,6 +347,7 @@ noack(struct rdc_buf_list *q, struct neighbor_queue *n, int num_transmissions)
 static void
 tx_ok(struct rdc_buf_list *q, struct neighbor_queue *n, int num_transmissions)
 {
+  csma_sent_packets++;
   n->collisions = CSMA_MIN_BE;
   n->transmissions += num_transmissions;
   tx_done(MAC_TX_OK, q, n);
@@ -329,8 +367,15 @@ packet_sent(void *ptr, int status, int num_transmissions)
   /* Find out what packet this callback refers to */
   for(q = list_head(n->queued_packet_list);
       q != NULL; q = list_item_next(q)) {
+#if CETIC_6LBR_MULTI_RADIO
+    if(queuebuf_attr(q->buf, PACKETBUF_ATTR_MAC_SEQNO) ==
+       packetbuf_attr(PACKETBUF_ATTR_MAC_SEQNO) &&
+       (q->ptr == NULL ||
+        ((struct qbuf_metadata *)q->ptr)->ifindex == multi_radio_input_ifindex)) {
+#else
     if(queuebuf_attr(q->buf, PACKETBUF_ATTR_MAC_SEQNO) ==
        packetbuf_attr(PACKETBUF_ATTR_MAC_SEQNO)) {
+#endif
       break;
     }
   }
@@ -367,22 +412,7 @@ send_packet(mac_callback_t sent, void *ptr)
 {
   struct rdc_buf_list *q;
   struct neighbor_queue *n;
-  static uint8_t initialized = 0;
-  static uint16_t seqno;
   const linkaddr_t *addr = packetbuf_addr(PACKETBUF_ADDR_RECEIVER);
-
-  if(!initialized) {
-    initialized = 1;
-    /* Initialize the sequence number to a random value as per 802.15.4. */
-    seqno = random_rand();
-  }
-
-  if(seqno == 0) {
-    /* PACKETBUF_ATTR_MAC_SEQNO cannot be zero, due to a pecuilarity
-       in framer-802154.c. */
-    seqno++;
-  }
-  packetbuf_set_attr(PACKETBUF_ATTR_MAC_SEQNO, seqno++);
 
   /* Look for the neighbor entry */
   n = neighbor_queue_from_addr(addr);
@@ -421,6 +451,9 @@ send_packet(mac_callback_t sent, void *ptr)
             }
             metadata->sent = sent;
             metadata->cptr = ptr;
+#if CETIC_6LBR_MULTI_RADIO
+            metadata->ifindex = multi_radio_output_ifindex;
+#endif
 #if PACKETBUF_WITH_PACKET_TYPE
             if(packetbuf_attr(PACKETBUF_ATTR_PACKET_TYPE) ==
                PACKETBUF_ATTR_PACKET_TYPE_ACK) {
@@ -454,8 +487,10 @@ send_packet(mac_callback_t sent, void *ptr)
       PRINTF("csma: Neighbor queue full\n");
     }
     PRINTF("csma: could not allocate packet, dropping packet\n");
+    csma_packet_overflow++;
   } else {
     PRINTF("csma: could not allocate neighbor, dropping packet\n");
+    csma_neighbor_overflow++;
   }
   mac_call_sent_callback(sent, ptr, MAC_TX_ERR, 1);
 }
@@ -463,6 +498,7 @@ send_packet(mac_callback_t sent, void *ptr)
 static void
 input_packet(void)
 {
+  csma_received_packets++;
   NETSTACK_LLSEC.input();
 }
 /*---------------------------------------------------------------------------*/

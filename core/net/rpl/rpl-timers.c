@@ -276,27 +276,30 @@ handle_dao_timer(void *ptr)
     dao_output(instance->current_dag->preferred_parent, instance->default_lifetime);
 
 #if RPL_WITH_MULTICAST
+    if(RPL_WITH_MULTICAST_TEST()) {
     /* Send DAOs for multicast prefixes only if the instance is in MOP 3 */
+#if RPL_SEND_DAO_FOR_MULTICAST_ADDRESS
     if(instance->mop == RPL_MOP_STORING_MULTICAST) {
       /* Send a DAO for own multicast addresses */
       for(i = 0; i < UIP_DS6_MADDR_NB; i++) {
         if(uip_ds6_if.maddr_list[i].isused
             && uip_is_addr_mcast_global(&uip_ds6_if.maddr_list[i].ipaddr)) {
           dao_output_target(instance->current_dag->preferred_parent,
-              &uip_ds6_if.maddr_list[i].ipaddr, RPL_MCAST_LIFETIME);
+              &uip_ds6_if.maddr_list[i].ipaddr, 128, instance->default_lifetime);
         }
       }
-
+#endif
       /* Iterate over multicast routes and send DAOs */
       mcast_route = uip_mcast6_route_list_head();
-      while(mcast_route != NULL) {
+      while(mcast_route != NULL && mcast_route->dag != NULL) {
         /* Don't send if it's also our own address, done that already */
         if(uip_ds6_maddr_lookup(&mcast_route->group) == NULL) {
           dao_output_target(instance->current_dag->preferred_parent,
-                     &mcast_route->group, RPL_MCAST_LIFETIME);
+                     &mcast_route->group, 128, instance->default_lifetime);
         }
         mcast_route = list_item_next(mcast_route);
       }
+    }
     }
 #endif
   } else {
@@ -457,11 +460,29 @@ get_probing_target(rpl_dag_t *dag)
   return probing_target;
 }
 /*---------------------------------------------------------------------------*/
+static rpl_dag_t *
+get_next_dag(rpl_instance_t *instance)
+{
+  rpl_dag_t *dag = NULL;
+  int new_dag = instance->last_dag;
+  do {
+    new_dag++;
+    if(new_dag >= RPL_MAX_DAG_PER_INSTANCE) {
+      new_dag = 0;
+    }
+    if(instance->dag_table[new_dag].used) {
+      dag = &instance->dag_table[new_dag];
+    }
+  } while(new_dag != instance->last_dag && dag == NULL);
+  instance->last_dag = new_dag;
+  return dag;
+}
+/*---------------------------------------------------------------------------*/
 static void
 handle_probing_timer(void *ptr)
 {
   rpl_instance_t *instance = (rpl_instance_t *)ptr;
-  rpl_parent_t *probing_target = RPL_PROBING_SELECT_FUNC(instance->current_dag);
+  rpl_parent_t *probing_target = RPL_PROBING_SELECT_FUNC(get_next_dag(instance));
   uip_ipaddr_t *target_ipaddr = rpl_get_parent_ipaddr(probing_target);
 
   /* Perform probing */

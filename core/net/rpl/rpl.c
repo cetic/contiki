@@ -56,6 +56,11 @@
 #include <limits.h>
 #include <string.h>
 
+#if CETIC_6LBR_SMARTBRIDGE
+extern void
+send_purge_na(uip_ipaddr_t *prefix);
+#endif
+
 #if RPL_CONF_STATS
 rpl_stats_t rpl_stats;
 #endif
@@ -149,7 +154,7 @@ rpl_purge_routes(void)
       /* Propagate this information with a No-Path DAO to preferred parent if we are not a RPL Root */
       if(dag->rank != ROOT_RANK(default_instance)) {
         PRINTF(" -> generate No-Path DAO\n");
-        dao_output_target(dag->preferred_parent, &prefix, RPL_ZERO_LIFETIME);
+        dao_output_target(dag->preferred_parent, &prefix, 128, RPL_ZERO_LIFETIME);
         /* Don't schedule more than 1 No-Path DAO, let next iteration handle that */
         return;
       }
@@ -160,16 +165,18 @@ rpl_purge_routes(void)
   }
 
 #if RPL_WITH_MULTICAST
+  if(RPL_WITH_MULTICAST_TEST()) {
   mcast_route = uip_mcast6_route_list_head();
 
   while(mcast_route != NULL) {
-    if(mcast_route->lifetime <= 1) {
+    if(mcast_route->dag != NULL && mcast_route->lifetime <= 1) {
       uip_mcast6_route_rm(mcast_route);
       mcast_route = uip_mcast6_route_list_head();
     } else {
       mcast_route->lifetime--;
       mcast_route = list_item_next(mcast_route);
     }
+  }
   }
 #endif
 }
@@ -194,6 +201,7 @@ rpl_remove_routes(rpl_dag_t *dag)
   }
 
 #if RPL_WITH_MULTICAST
+  if(RPL_WITH_MULTICAST_TEST()) {
   mcast_route = uip_mcast6_route_list_head();
 
   while(mcast_route != NULL) {
@@ -203,6 +211,7 @@ rpl_remove_routes(rpl_dag_t *dag)
     } else {
       mcast_route = list_item_next(mcast_route);
     }
+  }
   }
 #endif
 }
@@ -230,9 +239,22 @@ rpl_add_route(rpl_dag_t *dag, uip_ipaddr_t *prefix, int prefix_len,
 {
   uip_ds6_route_t *rep;
 
-  if((rep = uip_ds6_route_add(prefix, prefix_len, next_hop)) == NULL) {
-    PRINTF("RPL: No space for more route entries\n");
-    return NULL;
+  rep = uip_ds6_route_lookup(prefix);
+  if(rep == NULL ||
+     (uip_ds6_route_nexthop(rep) != NULL &&
+      !uip_ipaddr_cmp(uip_ds6_route_nexthop(rep), next_hop))) {
+    PRINTF("RPL: Add route for prefix ");
+    PRINT6ADDR(prefix);
+    PRINTF(" to ");
+    PRINT6ADDR(next_hop);
+    PRINTF("\n");
+    if((rep = uip_ds6_route_add(prefix, prefix_len, next_hop)) == NULL) {
+      PRINTF("RPL: No space for more route entries\n");
+      return NULL;
+    }
+#if CETIC_6LBR_SMARTBRIDGE
+    send_purge_na(prefix);
+#endif
   }
 
   rep->state.dag = dag;

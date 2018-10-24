@@ -244,7 +244,7 @@
 #endif
 
 #if RPL_WITH_NON_STORING && (RPL_NS_LINK_NUM == 0)
-#error "RPL with non-storing mode included but #links == 0. Set RPL_NS_CONF_LINK_NUM accordingly."
+//#error "RPL with non-storing mode included but #links == 0. Set RPL_NS_CONF_LINK_NUM accordingly."
 #if !RPL_WITH_STORING && (UIP_DS6_ROUTE_NB > 0)
 #error "You might also want to set UIP_CONF_MAX_ROUTES to 0."
 #endif
@@ -254,15 +254,10 @@
 #define RPL_IS_NON_STORING(instance) (RPL_WITH_NON_STORING && ((instance) != NULL) && ((instance)->mop == RPL_MOP_NON_STORING))
 
 /* Emit a pre-processor error if the user configured multicast with bad MOP */
+#if !CETIC_6LBR_RPL_RUNTIME_MOP
 #if RPL_WITH_MULTICAST && (RPL_MOP_DEFAULT != RPL_MOP_STORING_MULTICAST)
 #error "RPL Multicast requires RPL_MOP_DEFAULT==3. Check contiki-conf.h"
 #endif
-
-/* Multicast Route Lifetime as a multiple of the lifetime unit */
-#ifdef RPL_CONF_MCAST_LIFETIME
-#define RPL_MCAST_LIFETIME RPL_CONF_MCAST_LIFETIME
-#else
-#define RPL_MCAST_LIFETIME 3
 #endif
 
 /* DIS related */
@@ -348,7 +343,7 @@ extern rpl_instance_t *default_instance;
 void dis_output(uip_ipaddr_t *addr);
 void dio_output(rpl_instance_t *, uip_ipaddr_t *uc_addr);
 void dao_output(rpl_parent_t *, uint8_t lifetime);
-void dao_output_target(rpl_parent_t *, uip_ipaddr_t *, uint8_t lifetime);
+void dao_output_target(rpl_parent_t *, uip_ipaddr_t *, uint8_t prefixlen, uint8_t lifetime);
 void dao_ack_output(rpl_instance_t *, uip_ipaddr_t *, uint8_t, uint8_t);
 void rpl_icmp6_register_handlers(void);
 uip_ds6_nbr_t *rpl_icmp6_update_nbr_table(uip_ipaddr_t *from,

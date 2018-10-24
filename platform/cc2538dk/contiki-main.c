@@ -68,6 +68,7 @@
 #include "reg.h"
 #include "ieee-addr.h"
 #include "lpm.h"
+#include "lib/csprng.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -191,10 +192,16 @@ main(void)
 
   PRINTF(" Net: ");
   PRINTF("%s\n", NETSTACK_NETWORK.name);
+  PRINTF(" LLSEC: ");
+  PRINTF("%s\n", NETSTACK_LLSEC.name);
   PRINTF(" MAC: ");
   PRINTF("%s\n", NETSTACK_MAC.name);
   PRINTF(" RDC: ");
   PRINTF("%s\n", NETSTACK_RDC.name);
+  PRINTF(" Channel: ");
+  PRINTF("%d\n", CC2538_RF_CHANNEL);
+  PRINTF(" PAN-ID: ");
+  PRINTF("%x\n", IEEE802154_PANID);
 
   /* Initialise the H/W RNG engine. */
   random_init(0);
@@ -209,14 +216,17 @@ main(void)
 #if CRYPTO_CONF_INIT
   crypto_init();
   crypto_disable();
+  csprng_init();
 #endif
 
+  queuebuf_init();
   netstack_init();
 
 #if NETSTACK_CONF_WITH_IPV6
   memcpy(&uip_lladdr.addr, &linkaddr_node_addr, sizeof(uip_lladdr.addr));
-  queuebuf_init();
+#if !SLIP_RADIO
   process_start(&tcpip_process, NULL);
+#endif
 #endif /* NETSTACK_CONF_WITH_IPV6 */
 
   adc_init();

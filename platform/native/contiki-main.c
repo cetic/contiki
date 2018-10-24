@@ -71,11 +71,18 @@
 #endif /* NETSTACK_CONF_WITH_IPV6 */
 
 #include "net/rime/rime.h"
+#include "sys/node-id.h"
 
 #ifdef SELECT_CONF_MAX
 #define SELECT_MAX SELECT_CONF_MAX
 #else
 #define SELECT_MAX 8
+#endif
+
+#ifdef SELECT_CONF_TIMEOUT
+#define SELECT_TIMEOUT SELECT_CONF_TIMEOUT
+#else
+#define SELECT_TIMEOUT 1000
 #endif
 
 static const struct select_callback *select_callback[SELECT_MAX];
@@ -120,6 +127,7 @@ select_set_callback(int fd, const struct select_callback *callback)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
+#if ! CETIC_6LBR
 static int
 stdin_set_fd(fd_set *rset, fd_set *wset)
 {
@@ -139,6 +147,7 @@ stdin_handle_fd(fd_set *rset, fd_set *wset)
 const static struct select_callback stdin_fd = {
   stdin_set_fd, stdin_handle_fd
 };
+#endif
 /*---------------------------------------------------------------------------*/
 static void
 set_rime_addr(void)
@@ -213,8 +222,9 @@ main(int argc, char **argv)
   set_rime_addr();
 
   netstack_init();
-  printf("MAC %s RDC %s NETWORK %s\n", NETSTACK_MAC.name, NETSTACK_RDC.name, NETSTACK_NETWORK.name);
+  printf("MAC %s RDC %s SEC %s NETWORK %s\n", NETSTACK_MAC.name, NETSTACK_RDC.name, NETSTACK_LLSEC.name, NETSTACK_NETWORK.name);
 
+#if ! CETIC_6LBR
 #if NETSTACK_CONF_WITH_IPV6
   queuebuf_init();
 
@@ -241,6 +251,7 @@ main(int argc, char **argv)
 #elif NETSTACK_CONF_WITH_IPV4
   process_start(&tcpip_process, NULL);
 #endif
+#endif
 
   serial_line_init();
 
@@ -249,7 +260,9 @@ main(int argc, char **argv)
   /* Make standard output unbuffered. */
   setvbuf(stdout, (char *)NULL, _IONBF, 0);
 
+#if ! CETIC_6LBR
   select_set_callback(STDIN_FILENO, &stdin_fd);
+#endif
   while(1) {
     fd_set fdr;
     fd_set fdw;
@@ -261,7 +274,7 @@ main(int argc, char **argv)
     retval = process_run();
 
     tv.tv_sec = 0;
-    tv.tv_usec = retval ? 1 : 1000;
+    tv.tv_usec = retval ? 1 : SELECT_TIMEOUT;
 
     FD_ZERO(&fdr);
     FD_ZERO(&fdw);

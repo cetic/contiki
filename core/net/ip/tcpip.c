@@ -47,6 +47,14 @@
 #include "net/ipv6/uip-ds6.h"
 #endif
 
+#if CETIC_6LBR
+#include "cetic-6lbr.h"
+#include "rpl-utils.h"
+#endif
+#if CETIC_6LBR_WITH_IP64
+#include "ip64.h"
+#include "ip64-addr.h"
+#endif
 #if UIP_CONF_IPV6_RPL
 #include "net/rpl/rpl.h"
 #include "net/rpl/rpl-private.h"
@@ -133,6 +141,13 @@ tcpip_set_outputfunc(uint8_t (*f)(const uip_lladdr_t *))
 {
   outputfunc = f;
 }
+
+outputfunc_t
+tcpip_get_outputfunc(void)
+{
+  return outputfunc;
+}
+
 #else
 
 static uint8_t (* outputfunc)(void);
@@ -152,6 +167,29 @@ tcpip_set_outputfunc(uint8_t (*f)(void))
   outputfunc = f;
 }
 #endif
+
+static inputfunc_t inputfunc;
+
+void
+tcpip_input(void)
+{
+  if(inputfunc != NULL) {
+    inputfunc();
+  }
+  UIP_LOG("tcpip_input: Use tcpip_set_inputfunc() to set an input function");
+}
+
+void
+tcpip_set_inputfunc(inputfunc_t f)
+{
+  inputfunc = f;
+}
+
+inputfunc_t
+tcpip_get_inputfunc(void)
+{
+  return inputfunc;
+}
 
 #if UIP_CONF_IP_FORWARD
 unsigned char tcpip_is_forwarding; /* Forwarding right now? */
@@ -519,7 +557,7 @@ eventhandler(process_event_t ev, process_data_t data)
 }
 /*---------------------------------------------------------------------------*/
 void
-tcpip_input(void)
+tcpip_inputfunc(void)
 {
   process_post_synch(&tcpip_process, PACKET_INPUT, NULL);
   uip_clear_buf();
@@ -531,10 +569,17 @@ tcpip_ipv6_output(void)
 {
   uip_ds6_nbr_t *nbr = NULL;
   uip_ipaddr_t *nexthop = NULL;
+  uip_ds6_route_t *route = NULL;
 
   if(uip_len == 0) {
     return;
   }
+
+  PRINTF("IPv6 packet send from ");
+  PRINT6ADDR(&UIP_IP_BUF->srcipaddr);
+  PRINTF(" to ");
+  PRINT6ADDR(&UIP_IP_BUF->destipaddr);
+  PRINTF("\n");
 
   if(uip_len > UIP_LINK_MTU) {
     UIP_LOG("tcpip_ipv6_output: Packet to big");
@@ -578,14 +623,42 @@ tcpip_ipv6_output(void)
     }
 
     if(nexthop == NULL) {
-      uip_ds6_route_t *route;
       /* Check if we have a route to the destination address. */
       route = uip_ds6_route_lookup(&UIP_IP_BUF->destipaddr);
 
       /* No route was found - we send to the default route instead. */
       if(route == NULL) {
-        PRINTF("tcpip_ipv6_output: no route found, using default route\n");
-        nexthop = uip_ds6_defrt_choose();
+#if CETIC_6LBR_SMARTBRIDGE
+        if (uip_ipaddr_prefixcmp(&wsn_net_prefix, &UIP_IP_BUF->destipaddr, 64)) {
+          /* In smart-bridge mode, there is no route towards hosts on the Ethernet side
+          Therefore we have to check the destination and assume the host is on-link */
+          nexthop = &UIP_IP_BUF->destipaddr;
+        } else
+#endif
+#if CETIC_6LBR_ROUTER && UIP_CONF_IPV6_RPL
+        if (is_dodag_root() && uip_ipaddr_prefixcmp(&wsn_net_prefix, &UIP_IP_BUF->destipaddr, 64)) {
+          //In router mode, we drop packets towards unknown mote
+          PRINTF("Dropping wsn packet with no route\n");
+          uip_len = 0;
+          return;
+        } else
+#endif
+#if CETIC_6LBR_WITH_IP64
+        if(ip64_addr_is_ip64(&UIP_IP_BUF->destipaddr)) {
+#if UIP_CONF_IPV6_RPL
+          rpl_remove_header();
+#endif
+          IP64_CONF_UIP_FALLBACK_INTERFACE.output();
+          uip_len = 0;
+          uip_ext_len = 0;
+          return;
+        }
+        else
+#endif
+        {
+          PRINTF("tcpip_ipv6_output: no route found, using default route\n");
+          nexthop = uip_ds6_defrt_choose();
+        }
         if(nexthop == NULL) {
 #ifdef UIP_FALLBACK_INTERFACE
           PRINTF("FALLBACK: removing ext hdrs & setting proto %d %d\n",
@@ -624,16 +697,13 @@ tcpip_ipv6_output(void)
         if(nexthop == NULL) {
 #if UIP_CONF_IPV6_RPL
           /* If we are running RPL, and if we are the root of the
-             network, we'll trigger a global repair berfore we remove
+             network, we'll trigger a DIO before we remove
              the route. */
           rpl_dag_t *dag;
-          rpl_instance_t *instance;
 
           dag = (rpl_dag_t *)route->state.dag;
           if(dag != NULL) {
-            instance = dag->instance;
-
-            rpl_repair_root(instance->instance_id);
+            rpl_reset_dio_timer(dag->instance);
           }
 #endif /* UIP_CONF_IPV6_RPL */
           uip_ds6_route_rm(route);
@@ -663,6 +733,15 @@ tcpip_ipv6_output(void)
     nbr = uip_ds6_nbr_lookup(nexthop);
     if(nbr == NULL) {
 #if UIP_ND6_SEND_NS
+#if CETIC_6LBR && UIP_CONF_IPV6_RPL
+      /* Don't perform NUD if it has been disabled for WSN */
+      if((nvm_data.global_flags & CETIC_GLOBAL_DISABLE_WSN_NUD) != 0 &&
+         uip_ipaddr_prefixcmp(&wsn_net_prefix, &UIP_IP_BUF->destipaddr, 64) &&
+         route != NULL) {
+        uip_clear_buf();
+        return;
+      }
+#endif
       if((nbr = uip_ds6_nbr_add(nexthop, NULL, 0, NBR_INCOMPLETE, NBR_TABLE_REASON_IPV6_ND, NULL)) == NULL) {
         uip_clear_buf();
         PRINTF("tcpip_ipv6_output: failed to add neighbor to cache\n");
@@ -713,6 +792,12 @@ tcpip_ipv6_output(void)
       }
       /* Send in parallel if we are running NUD (nbc state is either STALE,
          DELAY, or PROBE). See RFC 4861, section 7.3.3 on node behavior. */
+#if CETIC_6LBR && UIP_CONF_IPV6_RPL
+      /* Don't update nbr state if we don't want to perform NUD for WSN */
+      if((nvm_data.global_flags & CETIC_GLOBAL_DISABLE_WSN_NUD) == 0 ||
+         !uip_ipaddr_prefixcmp(&wsn_net_prefix, &UIP_IP_BUF->destipaddr, 64) ||
+         route == NULL)
+#endif
       if(nbr->state == NBR_STALE) {
         nbr->state = NBR_DELAY;
         stimer_set(&nbr->reachable, UIP_ND6_DELAY_FIRST_PROBE_TIME);
@@ -812,6 +897,8 @@ tcpip_uipcall(void)
 PROCESS_THREAD(tcpip_process, ev, data)
 {
   PROCESS_BEGIN();
+  
+  tcpip_set_inputfunc(tcpip_inputfunc);
 
 #if UIP_TCP
   {

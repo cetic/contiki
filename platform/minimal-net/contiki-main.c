@@ -283,6 +283,7 @@ main(int argc, char **argv)
   }
 #else /* NETSTACK_CONF_WITH_IPV6 */
 
+#if !UIP_DS6_NO_STATIC_ADDRESS
 #if !UIP_CONF_IPV6_RPL
   {
     uip_ipaddr_t ipaddr;
@@ -312,6 +313,7 @@ main(int argc, char **argv)
     }
   }
 #endif /* !UIP_CONF_IPV6_RPL */
+#endif /* !UIP_DS6_NO_STATIC_ADDRESS */
 
 #endif /* !NETSTACK_CONF_WITH_IPV6 */
 

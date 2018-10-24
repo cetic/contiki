@@ -37,7 +37,7 @@ public class Exp1120MoteType extends Exp5438MoteType {
   throws MoteTypeCreationException {
 
     /* If visualized, show compile dialog and let user configure */
-    if (visAvailable && !simulation.isQuickSetup()) {
+    if (visAvailable) {
 
       /* Create unique identifier */
       if (getIdentifier() == null) {
@@ -74,7 +74,7 @@ public class Exp1120MoteType extends Exp5438MoteType {
       throw new MoteTypeCreationException("No identifier");
     }
 
-    final MessageList compilationOutput = MessageContainer.createMessageList(visAvailable);
+    final MessageList compilationOutput = visAvailable ? new MessageListUI() : new MessageListText();
 
     if (getCompileCommands() != null) {
       /* Handle multiple compilation commands one by one */

@@ -49,7 +49,13 @@
 #include "net/ipv6/uip-nd6.h"
 #include "net/ipv6/uip-ds6.h"
 #include "net/ipv6/multicast/uip-mcast6.h"
+#include "net/ipv6/multicast/uip-mld.h"
 #include "net/ip/uip-packetqueue.h"
+#if CETIC_6LBR
+#define LOG6LBR_MODULE "DS6"
+#include "log-6lbr.h"
+#include "cetic-6lbr.h"
+#endif
 
 #define DEBUG DEBUG_NONE
 #include "net/ip/uip-debug.h"
@@ -197,6 +203,11 @@ uip_ds6_periodic(void)
     uip_ds6_send_ra_periodic();
   }
 #endif /* UIP_CONF_ROUTER && UIP_ND6_SEND_RA */
+
+#if UIP_CONF_MLD
+  uip_mld_periodic();
+#endif
+
   etimer_reset(&uip_ds6_timer_periodic);
   return;
 }
@@ -421,6 +432,25 @@ uip_ds6_get_global(int8_t state)
 }
 
 /*---------------------------------------------------------------------------*/
+/*
+ * get the number of configured address -
+ * state = -1 => any address is ok. Otherwise state = desired state of addr.
+ * (TENTATIVE, PREFERRED, DEPRECATED)
+ */
+int
+uip_ds6_get_addr_number(int8_t state)
+{
+  int count = 0;
+  for(locaddr = uip_ds6_if.addr_list;
+      locaddr < uip_ds6_if.addr_list + UIP_DS6_ADDR_NB; locaddr++) {
+    if(locaddr->isused && (state == -1 || locaddr->state == state)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/*---------------------------------------------------------------------------*/
 uip_ds6_maddr_t *
 uip_ds6_maddr_add(const uip_ipaddr_t *ipaddr)
 {
@@ -430,6 +460,9 @@ uip_ds6_maddr_add(const uip_ipaddr_t *ipaddr)
       (uip_ds6_element_t **)&locmaddr) == FREESPACE) {
     locmaddr->isused = 1;
     uip_ipaddr_copy(&locmaddr->ipaddr, ipaddr);
+#if UIP_CONF_MLD
+    uip_icmp6_mldv1_schedule_report(locmaddr);
+#endif
     return locmaddr;
   }
   return NULL;
@@ -441,6 +474,9 @@ uip_ds6_maddr_rm(uip_ds6_maddr_t *maddr)
 {
   if(maddr != NULL) {
     maddr->isused = 0;
+#if UIP_CONF_MLD
+    uip_icmp6_mldv1_done(&maddr->ipaddr);
+#endif
   }
   return;
 }
@@ -509,6 +545,18 @@ uip_ds6_select_src(uip_ipaddr_t *src, uip_ipaddr_t *dst)
   uip_ds6_addr_t *matchaddr = NULL;
 
   if(!uip_is_addr_linklocal(dst) && !uip_is_addr_mcast(dst)) {
+#if CETIC_6LBR_ROUTER
+    //When using multiple interface, the address selection should first
+    //check on which interface the packet will be sent (RFC-6724, Rule 5)
+    //However in Contiki, the source address selection is performed before
+    //the interface is known, so we have to cheat and assume that we use
+    //the WSN address only when communicating with a WSN node
+    //Otherwise we use the Ethernet interface address.
+    if (!uip_ipaddr_prefixcmp(&wsn_net_prefix, dst, 64)) {
+      uip_ipaddr_copy(src, &eth_ip_addr);
+      return;
+    }
+#endif
     /* find longest match */
     for(locaddr = uip_ds6_if.addr_list;
         locaddr < uip_ds6_if.addr_list + UIP_DS6_ADDR_NB; locaddr++) {
@@ -617,6 +665,9 @@ uip_ds6_dad(uip_ds6_addr_t *addr)
 int
 uip_ds6_dad_failed(uip_ds6_addr_t *addr)
 {
+#if CETIC_6LBR
+  LOG6LBR_6ADDR(ERROR, &addr->ipaddr, "Address is already used : ");
+#endif
   if(uip_is_addr_linklocal(&addr->ipaddr)) {
     PRINTF("Contiki shutdown, DAD for link local address failed\n");
     return 0;
@@ -657,6 +708,11 @@ uip_ds6_send_ra_sollicited(void)
 void
 uip_ds6_send_ra_periodic(void)
 {
+#if CETIC_6LBR
+  if ((nvm_data.mode & CETIC_MODE_ROUTER_RA_DAEMON) == 0 ) {
+	  return;
+  }
+#endif
   if(racount > 0) {
     /* send previously scheduled RA */
     uip_nd6_ra_output(NULL);
@@ -684,6 +740,11 @@ uip_ds6_send_ra_periodic(void)
 void
 uip_ds6_send_rs(void)
 {
+#if CETIC_6LBR
+  if ((nvm_data.mode & CETIC_MODE_WAIT_RA_MASK) == 0 ) {
+    return;
+  }
+#endif
   if((uip_ds6_defrt_choose() == NULL)
      && (rscount < UIP_ND6_MAX_RTR_SOLICITATIONS)) {
     PRINTF("Sending RS %u\n", rscount);

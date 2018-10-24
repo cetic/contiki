@@ -79,6 +79,7 @@
 #include "net/ipv6/uip-nd6.h"
 #include "net/ipv6/uip-ds6.h"
 #include "net/ipv6/multicast/uip-mcast6.h"
+#include "net/ipv6/multicast/uip-mld.h"
 
 #if UIP_CONF_IPV6_RPL
 #include "rpl/rpl.h"
@@ -90,6 +91,11 @@
 #endif /* UIP_ND6_SEND_NS */
 
 #include <string.h>
+
+#if CETIC_6LBR_NODE_INFO
+#include "packet-forwarding-engine.h"
+#include "node-info.h"
+#endif
 
 /*---------------------------------------------------------------------------*/
 /* For Debug, logging, statistics                                            */
@@ -459,6 +465,9 @@ uip_init(void)
 #if UIP_IPV6_MULTICAST
   UIP_MCAST6.init();
 #endif
+#if UIP_CONF_MLD
+  uip_mld_init();
+#endif
 }
 /*---------------------------------------------------------------------------*/
 #if UIP_TCP && UIP_ACTIVE_OPEN
@@ -536,6 +545,7 @@ uip_connect(const uip_ipaddr_t *ripaddr, uint16_t rport)
 void
 remove_ext_hdr(void)
 {
+  int last_uip_ext_len;
   /* Remove ext header before TCP/UDP processing. */
   if(uip_ext_len > 0) {
     PRINTF("Cutting ext-header before processing (extlen: %d, uiplen: %d)\n",
@@ -545,15 +555,17 @@ remove_ext_hdr(void)
       uip_clear_buf();
       return;
     }
-    memmove(((uint8_t *)UIP_TCP_BUF), (uint8_t *)UIP_TCP_BUF + uip_ext_len,
-            uip_len - UIP_IPH_LEN - uip_ext_len);
+    last_uip_ext_len = uip_ext_len;
+    uip_ext_len = 0;
+    UIP_IP_BUF->proto = UIP_EXT_BUF->next;
+    memmove(((uint8_t *)UIP_TCP_BUF), (uint8_t *)UIP_TCP_BUF + last_uip_ext_len,
+	    uip_len - UIP_IPH_LEN - last_uip_ext_len);
 
-    uip_len -= uip_ext_len;
+    uip_len -= last_uip_ext_len;
 
     /* Update the IP length. */
     UIP_IP_BUF->len[0] = (uip_len - UIP_IPH_LEN) >> 8;
     UIP_IP_BUF->len[1] = (uip_len - UIP_IPH_LEN) & 0xff;
-    uip_ext_len = 0;
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -1162,7 +1174,7 @@ uip_process(uint8_t flag)
   }
 #endif /* UIP_ND6_SEND_NS */
 
-#if UIP_CONF_ROUTER
+#if UIP_CONF_ROUTER || CETIC_6LBR_SMARTBRIDGE
   /*
    * Next header field processing. In IPv6, we can have extension headers,
    * if present, the Hop-by-Hop Option must be processed before forwarding
@@ -1193,6 +1205,12 @@ uip_process(uint8_t flag)
     }
   }
 
+#if CETIC_6LBR_NODE_INFO
+  if(packet_filter_wsn_packet) {
+    /* Take only into account packets coming directly from the WSN interface */
+    node_info_node_seen(&UIP_IP_BUF->srcipaddr, UIP_TTL - (int)UIP_IP_BUF->ttl + 1);
+  }
+#endif
   /*
    * Process Packets with a routable multicast destination:
    * - We invoke the multicast engine and let it do its thing
@@ -1217,14 +1235,20 @@ uip_process(uint8_t flag)
 #endif /* UIP_IPV6_MULTICAST */
 
   /* TBD Some Parameter problem messages */
+#if ! CETIC_6LBR_SMARTBRIDGE
   if(!uip_ds6_is_my_addr(&UIP_IP_BUF->destipaddr) &&
      !uip_ds6_is_my_maddr(&UIP_IP_BUF->destipaddr)) {
+#else
+	  //Crude but effective passthrough for ND Proxy
+	  if(!uip_ds6_is_my_addr(&UIP_IP_BUF->destipaddr) &&
+	     !uip_ds6_is_my_maddr(&UIP_IP_BUF->destipaddr) &&
+		 (*uip_next_hdr != UIP_PROTO_ICMP6 || (UIP_ICMP_BUF->type != ICMP6_NS && UIP_ICMP_BUF->type != ICMP6_NA))) {
+#endif
     if(!uip_is_addr_mcast(&UIP_IP_BUF->destipaddr) &&
        !uip_is_addr_linklocal(&UIP_IP_BUF->destipaddr) &&
        !uip_is_addr_linklocal(&UIP_IP_BUF->srcipaddr) &&
        !uip_is_addr_unspecified(&UIP_IP_BUF->srcipaddr) &&
        !uip_is_addr_loopback(&UIP_IP_BUF->destipaddr)) {
-
 
       /* Check MTU */
       if(uip_len > UIP_LINK_MTU) {

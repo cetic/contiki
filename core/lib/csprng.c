@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Swedish Institute of Computer Science
+ * Copyright (c) 2013, Hasso-Plattner-Institut.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,45 +28,61 @@
  *
  * This file is part of the Contiki operating system.
  *
- * Sets up some commands for the RF230 radio.
  */
 
-#include "contiki.h"
-#include "cmd.h"
+/**
+ * \file
+ *         An OFB-AES-128-based CSPRNG.
+ * \author
+ *         Konrad Krentz <konrad.krentz@gmail.com>
+ */
 
-#include "radio/rf230/radio.h"
-#include "radio/rf230bb/rf230bb.h"
-
+#include "lib/csprng.h"
+#include "lib/aes-128.h"
+#include "sys/cc.h"
+#include <string.h>
 
 #define DEBUG 0
 #if DEBUG
 #include <stdio.h>
-#define PRINTF(FORMAT,args...) printf_P(PSTR(FORMAT),##args)
-#define PRINTSHORT(FORMAT,args...) printf_P(PSTR(FORMAT),##args)
-#else
+#define PRINTF(...) printf(__VA_ARGS__)
+#else /* DEBUG */
 #define PRINTF(...)
-#define PRINTSHORT(...)
-#endif
+#endif /* DEBUG */
 
-int
-cmd_handler_rf230(const uint8_t *data, int len)
+static struct csprng_seed seed;
+
+/*---------------------------------------------------------------------------*/
+void
+csprng_rand(uint8_t *result, uint8_t len)
 {
-  if(data[0] == '!') {
-    if(data[1] == 'C') {
-      PRINTF("CMD: Setting channel: %d\n", data[2]);
-      rf230_set_channel(data[2]);
-      return 1;
-    }
-  } else if(data[0] == '?') {
-    if(data[1] == 'C') {
-      uint8_t buf[4];
-      PRINTF("CMD: Getting channel: %d\n", data[2]);
-      buf[0] = '!';
-      buf[1] = 'C';
-      buf[2] = rf230_get_channel();
-      cmd_send(buf, 3);
-      return 1;
-    }
+  uint16_t pos;
+
+  AES_128.set_key(seed.key);
+  for(pos = 0; pos < len; pos += 16) {
+    AES_128.encrypt(seed.state);
+    memcpy(result + pos, seed.state, MIN(len - pos, 16));
   }
-  return 0;
 }
+/*---------------------------------------------------------------------------*/
+void
+csprng_init(void)
+{
+  CSPRNG_SEEDER.generate_seed(&seed);
+#if DEBUG
+  uint8_t i;
+
+  PRINTF("csprng: seeder = %s\n", CSPRNG_SEEDER.name);
+  PRINTF("csprng: key = ");
+  for(i = 0; i < CSPRNG_KEY_LEN; i++) {
+    PRINTF("%02x", seed.key[i]);
+  }
+  PRINTF("\n");
+  PRINTF("csprng: state = ");
+  for(i = 0; i < CSPRNG_STATE_LEN; i++) {
+    PRINTF("%02x", seed.state[i]);
+  }
+  PRINTF("\n");
+#endif
+}
+/*---------------------------------------------------------------------------*/

@@ -279,7 +279,7 @@ ifndef CUSTOM_RULE_LINK
 %.$(TARGET): %.co $(PROJECT_OBJECTFILES) $(PROJECT_LIBRARIES) contiki-$(TARGET).a
 	$(TRACE_LD)
 	$(Q)$(LD) $(LDFLAGS) $(TARGET_STARTFILES) ${filter-out %.a,$^} \
-	    ${filter %.a,$^} $(TARGET_LIBFILES) -o $@
+	    ${filter %.a,$^} $(TARGET_LIBFILES) $(LDFLAGS_AFTER) -o $@
 endif
 
 %.ramprof: %.$(TARGET)
@@ -297,8 +297,10 @@ endif
 # the match-anything rule below instead.
 %: %.c
 
+ifndef CUSTOM_DEFAULT_TARGET
 # Match-anything pattern rule to allow the project makefiles to
 # abstract from the actual binary name. It needs to contain some
 # command in order to be a rule, not just a prerequisite.
 %: %.$(TARGET)
 	@
+endif

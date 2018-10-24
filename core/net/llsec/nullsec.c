@@ -44,8 +44,18 @@
 
 #include "net/llsec/nullsec.h"
 #include "net/mac/frame802154.h"
+#include "net/mac/framer-802154.h"
 #include "net/netstack.h"
 #include "net/packetbuf.h"
+#include "net/mac/mac-sequence.h"
+
+#define DEBUG 0
+#if DEBUG
+#include <stdio.h>
+#define PRINTF(...) printf(__VA_ARGS__)
+#else
+#define PRINTF(...)
+#endif
 
 /*---------------------------------------------------------------------------*/
 static void
@@ -58,13 +68,28 @@ static void
 send(mac_callback_t sent, void *ptr)
 {
   packetbuf_set_attr(PACKETBUF_ATTR_FRAME_TYPE, FRAME802154_DATAFRAME);
+  framer_802154_set_seqno();
   NETSTACK_MAC.send(sent, ptr);
 }
 /*---------------------------------------------------------------------------*/
 static void
 input(void)
 {
-  NETSTACK_NETWORK.input();
+  int duplicate = 0;
+#if !RDC_WITH_DUPLICATE_DETECTION
+  /* Check for duplicate packet. */
+  duplicate = mac_sequence_is_duplicate();
+  if(duplicate) {
+    /* Drop the packet. */
+    PRINTF("nullsec: drop duplicate link layer packet %u\n",
+           packetbuf_attr(PACKETBUF_ATTR_MAC_SEQNO));
+  } else {
+    mac_sequence_register_seqno();
+  }
+#endif
+  if(!duplicate) {
+    NETSTACK_NETWORK.input();
+  }
 }
 /*---------------------------------------------------------------------------*/
 const struct llsec_driver nullsec_driver = {

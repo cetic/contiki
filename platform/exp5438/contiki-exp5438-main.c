@@ -34,7 +34,9 @@
 #include <stdarg.h>
 
 #include "dev/button-sensor.h"
+#if RADIO_DEVICE_cc2420
 #include "cc2420.h"
+#endif
 #include "dev/flash.h"
 #include "dev/leds.h"
 #include "dev/serial-line.h"
@@ -67,6 +69,7 @@
 #endif
 
 extern unsigned char node_mac[8];
+extern int msp430_dco_required;
 
 //SENSORS(&button_sensor);
 /*---------------------------------------------------------------------------*/
@@ -121,9 +124,9 @@ main(int argc, char **argv)
 
   leds_on(LEDS_RED);
 
-  uart1_init(BAUD2UBR(115200)); /* Must come before first printf */
+  uart1_init(115200); /* Must come before first printf */
 #if NETSTACK_CONF_WITH_IPV4
-  slip_arch_init(BAUD2UBR(115200));
+  slip_arch_init(115200);
 #endif /* NETSTACK_CONF_WITH_IPV4 */
 
   leds_on(LEDS_GREEN);
@@ -178,7 +181,7 @@ main(int argc, char **argv)
 
   set_rime_addr();
 
-  cc2420_init();
+  NETSTACK_CONF_RADIO.init();
 
   {
     uint8_t longaddr[8];
@@ -192,7 +195,9 @@ main(int argc, char **argv)
            longaddr[0], longaddr[1], longaddr[2], longaddr[3],
            longaddr[4], longaddr[5], longaddr[6], longaddr[7]);
 
+#if RADIO_DEVICE_cc2420
     cc2420_set_pan_addr(IEEE802154_PANID, shortaddr, longaddr);
+#endif
   }
 
   leds_off(LEDS_ALL);
@@ -203,7 +208,23 @@ main(int argc, char **argv)
     PRINTF("Node id not set.\n");
   }
 
-#if NETSTACK_CONF_WITH_IPV6
+#if SLIP_RADIO
+  memcpy(&uip_lladdr.addr, node_mac, sizeof(uip_lladdr.addr));
+  /* Setup nullmac-like MAC for 802.15.4 */
+
+  queuebuf_init();
+
+  NETSTACK_RDC.init();
+  NETSTACK_MAC.init();
+  NETSTACK_NETWORK.init();
+
+  printf("%s %lu %u\n",
+         NETSTACK_RDC.name,
+         CLOCK_SECOND / (NETSTACK_RDC.channel_check_interval() == 0 ? 1:
+                         NETSTACK_RDC.channel_check_interval()),
+         CC2420_CONF_CHANNEL);
+
+#elif NETSTACK_CONF_WITH_IPV6
   memcpy(&uip_lladdr.addr, node_mac, sizeof(uip_lladdr.addr));
   /* Setup nullmac-like MAC for 802.15.4 */
 
@@ -233,6 +254,7 @@ main(int argc, char **argv)
     printf("%02x%02x\n", lladdr->ipaddr.u8[14], lladdr->ipaddr.u8[15]);
   }
 
+#if !UIP_DS6_NO_STATIC_ADDRESS
   if(!UIP_CONF_IPV6_RPL) {
     uip_ipaddr_t ipaddr;
     int i;
@@ -247,6 +269,7 @@ main(int argc, char **argv)
     printf("%02x%02x\n",
            ipaddr.u8[7 * 2], ipaddr.u8[7 * 2 + 1]);
   }
+#endif /* !UIP_DS6_NO_STATIC_ADDRESS */
 
 #else /* NETSTACK_CONF_WITH_IPV6 */
 
@@ -261,7 +284,7 @@ main(int argc, char **argv)
          CC2420_CONF_CHANNEL);
 #endif /* NETSTACK_CONF_WITH_IPV6 */
 
-#if !NETSTACK_CONF_WITH_IPV6
+#if !NETSTACK_CONF_WITH_IPV6 && !SLIP_RADIO
   uart1_set_input(serial_line_input_byte);
   serial_line_init();
 #endif
@@ -313,12 +336,16 @@ main(int argc, char **argv)
          were awake. */
       energest_type_set(ENERGEST_TYPE_IRQ, irq_energest);
       watchdog_stop();
-      _BIS_SR(GIE | SCG0 | SCG1 | CPUOFF); /* LPM3 sleep. This
-                                              statement will block
-                                              until the CPU is
-                                              woken up by an
-                                              interrupt that sets
-                                              the wake up flag. */
+      if (msp430_dco_required) {
+        _BIS_SR(GIE | CPUOFF); /* LPM1 sleep for DMA to work!. */
+      } else {
+       _BIS_SR(GIE | SCG0 | SCG1 | CPUOFF); /* LPM3 sleep. This
+                                                statement will block
+                                                until the CPU is
+                                                woken up by an
+                                                interrupt that sets
+                                                the wake up flag. */
+      }
 
       /* We get the current processing time for interrupts that was
          done during the LPM and store it for next time around.  */

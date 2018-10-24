@@ -239,12 +239,8 @@ uip_icmp6_error_output(uint8_t type, uint8_t code, uint32_t param) {
       return;
     }
   } else {
-#if UIP_CONF_ROUTER
     /* need to pick a source that corresponds to this node */
     uip_ds6_select_src(&UIP_IP_BUF->srcipaddr, &tmp_ipaddr);
-#else
-    uip_ipaddr_copy(&UIP_IP_BUF->srcipaddr, &tmp_ipaddr);
-#endif
   }
 
   UIP_ICMP_BUF->type = type;
@@ -306,6 +302,11 @@ echo_reply_input(void)
   PRINTF(" to ");
   PRINT6ADDR(&UIP_IP_BUF->destipaddr);
   PRINTF("\n");
+
+#if CETIC_6LBR_TRACE_PING
+  //TODO: Replace with proper callback
+  printf("Received an icmp6 echo reply\n");
+#endif
 
   uip_ipaddr_copy(&sender, &UIP_IP_BUF->srcipaddr);
   ttl = UIP_IP_BUF->ttl;

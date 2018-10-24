@@ -8,6 +8,7 @@
 *.d
 *.ihex
 *.pyc
+*.cooja
 *.redbee-econotag
 *.econotag 
 *.native
@@ -17,7 +18,10 @@
 *.wismote
 *.esb
 *.avr-raven
+*.openmote
+*.openmote-cc2538
 *.exp5438
+*.trxeb
 *.mbxxx
 *.win32
 *.apple2enh
@@ -25,6 +29,7 @@
 *.c128
 *.c64
 *.cc2538dk
+*.remote
 *.zoul
 *.jn516x
 *.srf06-cc26xx
@@ -70,6 +75,12 @@ contiki-cc2530dk.lib
 *.cdb
 *.banks
 *.cc2530dk
+
+#Eclipse configuration files
+.project
+.cproject
+.pydevproject
+.settings
 
 # VC++ build artifacts
 *.exp

@@ -42,6 +42,7 @@
 #include "lib/random.h"
 #include "net/netstack.h"
 #include "net/mac/frame802154.h"
+#include "lib/csprng.h"
 
 #if NETSTACK_CONF_WITH_IPV6
 #include "net/ipv6/uip-ds6.h"
@@ -74,6 +75,12 @@ extern int msp430_dco_required;
 
 #ifndef NETSTACK_CONF_WITH_IPV4
 #define NETSTACK_CONF_WITH_IPV4 0
+#endif
+
+#ifndef SKY_CONF_MAX_TX_POWER
+#define SKY_MAX_TX_POWER 31
+#else
+#define SKY_MAX_TX_POWER SKY_CONF_MAX_TX_POWER
 #endif
 
 #if NETSTACK_CONF_WITH_IPV4
@@ -279,6 +286,8 @@ main(int argc, char **argv)
     
     cc2420_set_pan_addr(IEEE802154_PANID, shortaddr, longaddr);
   }
+  
+  csprng_init();
 
   PRINTF(CONTIKI_VERSION_STRING " started. ");
   if(node_id > 0) {
@@ -291,6 +300,20 @@ main(int argc, char **argv)
 	 ds2411_id[0], ds2411_id[1], ds2411_id[2], ds2411_id[3],
 	 ds2411_id[4], ds2411_id[5], ds2411_id[6], ds2411_id[7]);*/
 
+#if SLIP_RADIO
+  memcpy(&uip_lladdr.addr, ds2411_id, sizeof(uip_lladdr.addr));
+  queuebuf_init();
+  NETSTACK_RDC.init();
+  NETSTACK_MAC.init();
+  NETSTACK_LLSEC.init();
+
+  printf("%s %s, channel check rate %lu Hz, radio channel %u, CCA threshold %i\n",
+         NETSTACK_MAC.name, NETSTACK_RDC.name,
+         CLOCK_SECOND / (NETSTACK_RDC.channel_check_interval() == 0 ? 1:
+                         NETSTACK_RDC.channel_check_interval()),
+         CC2420_CONF_CHANNEL,
+         CC2420_CONF_CCA_THRESH);
+#else
 #if NETSTACK_CONF_WITH_IPV6
   memcpy(&uip_lladdr.addr, ds2411_id, sizeof(uip_lladdr.addr));
   /* Setup nullmac-like MAC for 802.15.4 */
@@ -327,6 +350,7 @@ main(int argc, char **argv)
   }
 #endif /* DEBUG */
 
+#if !UIP_DS6_NO_STATIC_ADDRESS
   if(!UIP_CONF_IPV6_RPL) {
     uip_ipaddr_t ipaddr;
     int i;
@@ -341,6 +365,7 @@ main(int argc, char **argv)
     PRINTF("%02x%02x\n",
            ipaddr.u8[7 * 2], ipaddr.u8[7 * 2 + 1]);
   }
+#endif
 #else /* NETSTACK_CONF_WITH_IPV6 */
 
   NETSTACK_RDC.init();
@@ -354,6 +379,7 @@ main(int argc, char **argv)
                          NETSTACK_RDC.channel_check_interval()),
          CC2420_CONF_CHANNEL);
 #endif /* NETSTACK_CONF_WITH_IPV6 */
+#endif /* SLIP_RADIO */
 
 #if !NETSTACK_CONF_WITH_IPV4 && !NETSTACK_CONF_WITH_IPV6
   uart1_set_input(serial_line_input_byte);

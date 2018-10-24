@@ -170,6 +170,13 @@
 #define UIP_DS6_PERIOD UIP_DS6_CONF_PERIOD
 #endif
 
+/** \brief Should we assign a global statically configured address at boot ? */
+#ifndef UIP_DS6_CONF_NO_STATIC_ADDRESS
+#define UIP_DS6_NO_STATIC_ADDRESS 0
+#else
+#define UIP_DS6_NO_STATIC_ADDRESS UIP_DS6_CONF_NO_STATIC_ADDRESS
+#endif
+
 #define FOUND 0
 #define FREESPACE 1
 #define NOSPACE 2
@@ -224,6 +231,10 @@ typedef struct uip_ds6_aaddr {
 typedef struct uip_ds6_maddr {
   uint8_t isused;
   uip_ipaddr_t ipaddr;
+#if UIP_CONF_MLD
+  struct stimer report_timeout;
+  uint8_t report_count;
+#endif
 } uip_ds6_maddr_t;
 
 /* only define the callback if RPL is active */
@@ -321,6 +332,7 @@ void uip_ds6_addr_rm(uip_ds6_addr_t *addr);
 uip_ds6_addr_t *uip_ds6_addr_lookup(uip_ipaddr_t *ipaddr);
 uip_ds6_addr_t *uip_ds6_get_link_local(int8_t state);
 uip_ds6_addr_t *uip_ds6_get_global(int8_t state);
+int uip_ds6_get_addr_number(int8_t state);
 
 /** @} */
 

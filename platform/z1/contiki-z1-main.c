@@ -307,6 +307,26 @@ main(int argc, char **argv)
     PRINTF("Node id not set\n");
   }
 
+#if SLIP_RADIO
+  memcpy(&uip_lladdr.addr, node_mac, sizeof(uip_lladdr.addr));
+  /* Setup nullmac-like MAC for 802.15.4 */
+  /*   sicslowpan_init(sicslowmac_init(&cc2420_driver)); */
+  /*   printf(" %s channel %u\n", sicslowmac_driver.name, RF_CHANNEL); */
+
+  /* Setup X-MAC for 802.15.4 */
+  queuebuf_init();
+
+  NETSTACK_RDC.init();
+  NETSTACK_MAC.init();
+  NETSTACK_NETWORK.init();
+
+  printf("%s %s, channel check rate %lu Hz, radio channel %u, CCA threshold %i\n",
+         NETSTACK_MAC.name, NETSTACK_RDC.name,
+         CLOCK_SECOND / (NETSTACK_RDC.channel_check_interval() == 0 ? 1 :
+                         NETSTACK_RDC.channel_check_interval()),
+         CC2420_CONF_CHANNEL,
+         CC2420_CONF_CCA_THRESH);
+#else
 #if NETSTACK_CONF_WITH_IPV6
   memcpy(&uip_lladdr.addr, node_mac, sizeof(uip_lladdr.addr));
   /* Setup nullmac-like MAC for 802.15.4 */
@@ -325,7 +345,8 @@ main(int argc, char **argv)
          NETSTACK_LLSEC.name, NETSTACK_MAC.name, NETSTACK_RDC.name,
          CLOCK_SECOND / (NETSTACK_RDC.channel_check_interval() == 0 ? 1 :
                          NETSTACK_RDC.channel_check_interval()),
-         CC2420_CONF_CHANNEL);
+         CC2420_CONF_CHANNEL,
+         CC2420_CONF_CCA_THRESH);
 
   process_start(&tcpip_process, NULL);
 
@@ -340,7 +361,8 @@ main(int argc, char **argv)
     }
     printf("%02x%02x\n", lladdr->ipaddr.u8[14], lladdr->ipaddr.u8[15]);
   }
-
+  
+#if !UIP_DS6_NO_STATIC_ADDRESS
   if(!UIP_CONF_IPV6_RPL) {
     uip_ipaddr_t ipaddr;
     int i;
@@ -355,6 +377,7 @@ main(int argc, char **argv)
     printf("%02x%02x\n",
            ipaddr.u8[7 * 2], ipaddr.u8[7 * 2 + 1]);
   }
+#endif /* !UIP_DS6_NO_STATIC_ADDRESS */
 
 #else /* NETSTACK_CONF_WITH_IPV6 */
 
@@ -367,8 +390,10 @@ main(int argc, char **argv)
          NETSTACK_LLSEC.name, NETSTACK_MAC.name, NETSTACK_RDC.name,
          CLOCK_SECOND / (NETSTACK_RDC.channel_check_interval() == 0 ? 1 :
                          NETSTACK_RDC.channel_check_interval()),
-         CC2420_CONF_CHANNEL);
+         CC2420_CONF_CHANNEL,
+         CC2420_CONF_CCA_THRESH);
 #endif /* NETSTACK_CONF_WITH_IPV6 */
+#endif /* SLIP_RADIO */
 
 #if !NETSTACK_CONF_WITH_IPV4 && !NETSTACK_CONF_WITH_IPV6
   uart0_set_input(serial_line_input_byte);

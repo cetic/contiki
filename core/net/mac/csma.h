@@ -48,4 +48,16 @@ extern const struct mac_driver csma_driver;
 
 const struct mac_driver *csma_init(const struct mac_driver *r);
 
+extern int csma_allocated_packets(void);
+extern int csma_allocated_neighbors(void);
+
+extern uint32_t csma_packet_overflow;
+extern uint32_t csma_neighbor_overflow;
+extern uint32_t csma_sent_packets;
+extern uint32_t csma_received_packets;
+extern uint32_t csma_noack;
+extern uint32_t csma_collisions;
+extern uint32_t csma_retransmissions;
+extern uint32_t csma_dropped;
+
 #endif /* CSMA_H_ */

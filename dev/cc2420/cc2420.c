@@ -102,6 +102,10 @@ enum write_ram_order {
 #define LEDS_OFF(x)
 #endif
 
+#if CC2420_SNIFFER
+extern uint8_t sniffer_crc_ok;
+#endif
+
 /* Conversion map between PA_LEVEL and output power in dBm
    (from table 9 in CC2420 specification).
 */
@@ -167,6 +171,8 @@ static void set_frame_filtering(uint8_t enable);
 static void set_poll_mode(uint8_t enable);
 static void set_send_on_cca(uint8_t enable);
 static void set_auto_ack(uint8_t enable);
+
+static radio_value_t get_iq_lsbs(void);
 
 signed char cc2420_last_rssi;
 uint8_t cc2420_last_correlation;
@@ -237,6 +243,8 @@ get_value(radio_param_t param, radio_value_t *value)
   case RADIO_PARAM_LAST_LINK_QUALITY:
     /* LQI of the last packet received */
     *value = cc2420_last_correlation;
+  case RADIO_PARAM_IQ_LSBS:
+    *value = get_iq_lsbs();
     return RADIO_RESULT_OK;
   case RADIO_CONST_CHANNEL_MIN:
     *value = 11;
@@ -986,9 +994,22 @@ cc2420_read(void *buf, unsigned short bufsize)
       }
 
       RIMESTATS_ADD(llrx);
+#if CC2420_SNIFFER
+    sniffer_crc_ok = 1;
+#endif /* CC2420_SNIFFER */
     } else {
       RIMESTATS_ADD(badcrc);
+#if CC2420_SNIFFER
+    /* if in sniffer mode we do not reset the len var and we still store the
+     * rssi and correlation value */
+    sniffer_crc_ok = 0;
+    cc2420_last_rssi = footer[0];
+    cc2420_last_correlation = footer[1] & FOOTER1_CORRELATION;
+    packetbuf_set_attr(PACKETBUF_ATTR_RSSI, cc2420_last_rssi);
+    packetbuf_set_attr(PACKETBUF_ATTR_LINK_QUALITY, cc2420_last_correlation);
+#else /* !CC2420_SNIFFER */
       len = FOOTER_LEN;
+#endif /* CC2420_SNIFFER */
     }
 
     if(!poll_mode) {
@@ -1058,6 +1079,43 @@ cc2420_rssi(void)
   }
   RELEASE_LOCK();
   return rssi;
+}
+/*---------------------------------------------------------------------------*/
+static void
+get_iq(uint8_t *i, uint8_t *q)
+{
+  uint16_t adctst;
+  int radio_was_off;
+
+  GET_LOCK();
+
+  radio_was_off = 0;
+  if(!receive_on) {
+    radio_was_off = 1;
+    cc2420_on();
+  }
+
+  wait_for_status(BV(CC2420_RSSI_VALID));
+  adctst = getreg(CC2420_ADCTST);
+  *q = adctst & 0x007F;
+  *i = (adctst >> 8) & 0x007F;
+
+  if(radio_was_off) {
+    cc2420_off();
+  }
+
+  RELEASE_LOCK();
+}
+/*---------------------------------------------------------------------------*/
+static radio_value_t
+get_iq_lsbs(void)
+{
+  uint8_t i;
+  uint8_t q;
+
+  get_iq(&i, &q);
+
+  return ((i & 1) << 1) | (q & 1);
 }
 /*---------------------------------------------------------------------------*/
 static int
