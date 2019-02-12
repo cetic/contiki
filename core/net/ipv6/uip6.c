@@ -1237,10 +1237,12 @@ uip_process(uint8_t flag)
   /* TBD Some Parameter problem messages */
 #if ! CETIC_6LBR_SMARTBRIDGE
   if(!uip_ds6_is_my_addr(&UIP_IP_BUF->destipaddr) &&
+     !uip_ds6_is_my_aaddr(&UIP_IP_BUF->destipaddr) &&
      !uip_ds6_is_my_maddr(&UIP_IP_BUF->destipaddr)) {
 #else
 	  //Crude but effective passthrough for ND Proxy
 	  if(!uip_ds6_is_my_addr(&UIP_IP_BUF->destipaddr) &&
+	     !uip_ds6_is_my_aaddr(&UIP_IP_BUF->destipaddr) &&
 	     !uip_ds6_is_my_maddr(&UIP_IP_BUF->destipaddr) &&
 		 (*uip_next_hdr != UIP_PROTO_ICMP6 || (UIP_ICMP_BUF->type != ICMP6_NS && UIP_ICMP_BUF->type != ICMP6_NA))) {
 #endif
@@ -1289,6 +1291,7 @@ uip_process(uint8_t flag)
 #else /* UIP_CONF_ROUTER */
   if(!uip_ds6_is_my_addr(&UIP_IP_BUF->destipaddr) &&
      !uip_ds6_is_my_maddr(&UIP_IP_BUF->destipaddr) &&
+     !uip_ds6_is_my_aaddr(&UIP_IP_BUF->destipaddr) &&
      !uip_is_addr_mcast(&UIP_IP_BUF->destipaddr)) {
     PRINTF("Dropping packet, not for me\n");
     UIP_STAT(++uip_stat.ip.drop);
